@@ -1,0 +1,87 @@
+x-couriercms-environment: &couriercms-environment
+  DATABASE_URL: ecto://couriercms:couriercms_dev@postgres/couriercms_dev
+  SECRET_KEY_BASE: local-compose-secret-key-base-change-before-production-000000000000000000000000
+  COURIERCMS_VAULT_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  COURIERCMS_EXTENSIONS_PATH: /var/lib/couriercms/extensions
+  COURIERCMS_EXTENSION_CACHE_DIR: /var/lib/couriercms/extension-cache
+  PHX_HOST: localhost
+  SMTP_RELAY: localhost
+  SMTP_USERNAME: local
+  SMTP_PASSWORD: local
+
+x-couriercms-service: &couriercms-service
+  image: couriercms:local
+  build:
+    context: .
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: *couriercms-environment
+  volumes:
+    - couriercms_extension_cache:/var/lib/couriercms/extension-cache
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: couriercms
+      POSTGRES_PASSWORD: couriercms_dev
+      POSTGRES_DB: couriercms_dev
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - couriercms_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U couriercms -d couriercms_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  couriercms:
+    <<: *couriercms-service
+    environment:
+      <<: *couriercms-environment
+      COURIERCMS_ROLE: all
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:4000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  couriercms-migrate:
+    <<: *couriercms-service
+    profiles: ["tools"]
+    command: ["/app/bin/migrate"]
+    restart: "no"
+
+  couriercms-web:
+    <<: *couriercms-service
+    profiles: ["split"]
+    environment:
+      <<: *couriercms-environment
+      COURIERCMS_ROLE: web
+    ports:
+      - "4001:4000"
+
+  couriercms-worker:
+    <<: *couriercms-service
+    profiles: ["split"]
+    environment:
+      <<: *couriercms-environment
+      COURIERCMS_ROLE: worker
+      PHX_SERVER: "false"
+      COURIERCMS_SCHEDULER_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "/app/bin/couriercms", "rpc", "CourierCMS.Release.worker_health!()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  couriercms_postgres:
+  couriercms_extension_cache:

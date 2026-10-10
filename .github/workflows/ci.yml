@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extensions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        project: [sdk, fake, wordpress, sanity]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "29.1.1"
+          elixir-version: "1.20.4"
+      - run: mix deps.get
+        working-directory: extensions/${{ matrix.project }}
+      - run: mix hex.audit
+        working-directory: extensions/${{ matrix.project }}
+      - run: mix format --check-formatted
+        working-directory: extensions/${{ matrix.project }}
+      - run: mix compile --warnings-as-errors
+        working-directory: extensions/${{ matrix.project }}
+      - run: mix test
+        working-directory: extensions/${{ matrix.project }}
+      - if: matrix.project != 'sdk'
+        run: MIX_ENV=prod mix couriercms.extension.build
+        working-directory: extensions/${{ matrix.project }}
+
+  platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: couriercms
+          POSTGRES_PASSWORD: couriercms_dev
+          POSTGRES_DB: couriercms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U couriercms -d couriercms_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "29.1.1"
+          elixir-version: "1.20.4"
+      - run: sh ./scripts/prepare-extensions.sh --include-fake
+      - run: mix deps.get
+        working-directory: platform
+      - run: mix hex.audit
+        working-directory: platform
+      - run: mix format --check-formatted
+        working-directory: platform
+      - run: mix compile --warnings-as-errors
+        working-directory: platform
+        env:
+          MIX_ENV: test
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+      - run: mix test
+        working-directory: platform
+        env:
+          MIX_ENV: test
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+
+  sanity-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: examples/sanity-consumer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.15.0"
+          cache: npm
+          cache-dependency-path: examples/sanity-consumer/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=critical
+      - run: npm exec sanity build -- dist -y
+        env:
+          SANITY_STUDIO_PROJECT_ID: abc123xy
+          SANITY_STUDIO_DATASET: production
+
+  connector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: php -l connectors/wordpress/couriercms-connector.php
+      - run: sh ./scripts/package-wordpress-connector.sh
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker compose config --quiet
+      - run: docker build --tag couriercms:${{ github.sha }} .

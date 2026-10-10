@@ -1,0 +1,18 @@
+* text=auto
+LICENSE text eol=lf
+
+*.sh text eol=lf
+*.ex text eol=lf
+*.exs text eol=lf
+*.heex text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ps1 text eol=crlf
+
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.couriercms binary

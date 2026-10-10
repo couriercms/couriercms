@@ -1,0 +1,39 @@
+{
+  "id": 101,
+  "date_gmt": "2026-02-12T14:00:00",
+  "modified_gmt": "2026-02-14T10:30:00",
+  "slug": "reliable-content-delivery",
+  "status": "publish",
+  "type": "post",
+  "link": "https://wordpress.example/posts/reliable-content-delivery/",
+  "title": {"rendered": "Reliable content &amp; delivery"},
+  "content": {"rendered": "<p>CMS integrations should be <strong>observable</strong>.</p>"},
+  "excerpt": {"rendered": "<p>Why delivery history matters.</p>"},
+  "author": 12,
+  "featured_media": 501,
+  "format": "standard",
+  "_embedded": {
+    "author": [
+      {"id": 12, "name": "Maya &amp; Chen", "link": "https://wordpress.example/author/maya/"}
+    ],
+    "wp:term": [
+      [
+        {"id": 4, "name": "Engineering", "slug": "engineering", "taxonomy": "category"}
+      ],
+      [
+        {"id": 8, "name": "Elixir", "slug": "elixir", "taxonomy": "post_tag"},
+        {"id": 9, "name": "Architecture", "slug": "architecture", "taxonomy": "post_tag"}
+      ]
+    ],
+    "wp:featuredmedia": [
+      {
+        "id": 501,
+        "source_url": "https://wordpress.example/wp-content/uploads/delivery-pipeline.jpg",
+        "mime_type": "image/jpeg",
+        "alt_text": "A content delivery pipeline",
+        "caption": {"rendered": "<p>Delivery pipeline</p>"},
+        "media_details": {"width": 1600, "height": 900}
+      }
+    ]
+  }
+}

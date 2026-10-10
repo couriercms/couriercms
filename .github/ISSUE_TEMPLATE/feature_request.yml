@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a change within CourierCMS's CMS-aware delivery boundary.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the CMS delivery problem without prescribing a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Product-boundary fit
+      description: Explain why this is one-way CMS delivery rather than target workflow, synchronization, or generic automation.
+    validations:
+      required: true
+  - type: textarea
+    id: reliability
+    attributes:
+      label: Reliability and compatibility
+      description: Note identity, ownership, retry, checkpoint, extension-contract, or migration effects.

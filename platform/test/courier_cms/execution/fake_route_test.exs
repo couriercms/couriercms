@@ -1,0 +1,400 @@
+defmodule CourierCMS.Execution.FakeRouteTest do
+  use CourierCMS.DataCase
+  use Oban.Testing, repo: CourierCMS.Repo
+  import Swoosh.TestAssertions
+
+  alias CourierCMS.Connections.Connection
+  alias CourierCMS.Connectors.ConnectorEvent
+  alias CourierCMS.Destinations
+  alias CourierCMS.Execution
+  alias CourierCMS.Execution.RunItem
+  alias CourierCMS.Ownership.DeliveryBinding
+  alias CourierCMS.Ownership.RouteItem
+  alias CourierCMS.Routes
+
+  test "delivers filtered items independently, retries a transient failure, and skips replay" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert route.current_revision.source_extension_id == "com.couriercms.fake"
+    assert route.current_revision.source_component_id == "fake_source"
+    assert route.current_revision.target_component_id == "fake_target"
+
+    {:ok, first_run} = Execution.start_manual_run(scope, route.id)
+    assert first_run.source_artifact["extension_id"] == "com.couriercms.fake"
+    assert first_run.source_artifact["component_id"] == "fake_source"
+    assert first_run.target_artifact["component_id"] == "fake_target"
+    assert is_binary(first_run.source_artifact["checksum"])
+    assert :ok = Execution.plan_run(first_run.id)
+
+    first_items = items(first_run.id)
+    assert Enum.map(first_items, & &1.source_item_key) == ["101", "102"]
+
+    Enum.each(first_items, fn item ->
+      case Execution.process_run_item(item.id, 1, 3) do
+        :ok ->
+          :ok
+
+        {:error, "Simulated temporary target outage"} ->
+          assert :ok = Execution.process_run_item(item.id, 2, 3)
+      end
+    end)
+
+    completed = Execution.get_run!(scope, first_run.id)
+    assert completed.status == :succeeded
+    assert completed.items_discovered == 2
+    assert completed.items_succeeded == 2
+    assert Repo.aggregate(RouteItem, :count) == 2
+    assert Repo.aggregate(DeliveryBinding, :count) == 2
+    assert Enum.all?(Repo.all(DeliveryBinding), &is_binary(&1.target_reference))
+
+    {:ok, replay} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(replay.id)
+    Enum.each(items(replay.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+
+    replayed = Execution.get_run!(scope, replay.id)
+    assert replayed.status == :succeeded
+    assert replayed.items_skipped == 2
+    assert Repo.aggregate(RouteItem, :count) == 2
+
+    {:ok, forced} = Execution.start_manual_run(scope, route.id, force_redelivery: true)
+    assert forced.trigger_metadata["delivery_mode"] == "force"
+    assert :ok = Execution.plan_run(forced.id)
+    Enum.each(items(forced.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+
+    redelivered = Execution.get_run!(scope, forced.id)
+    assert redelivered.status == :succeeded
+    assert redelivered.items_succeeded == 2
+    assert redelivered.items_skipped == 0
+    assert Enum.all?(items(forced.id), &(&1.planned_operation == "update"))
+    assert Repo.aggregate(RouteItem, :count) == 2
+
+    route.source_connection
+    |> Ecto.Changeset.change(
+      settings: %{
+        "fail_once_for" => ["102"],
+        "revision_overrides" => %{"101" => "8"},
+        "title_overrides" => %{"101" => "Reliable content delivery, updated"}
+      }
+    )
+    |> Repo.update!()
+
+    {:ok, changed_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(changed_run.id)
+    Enum.each(items(changed_run.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+
+    changed_items = items(changed_run.id)
+    changed = Enum.find(changed_items, &(&1.source_item_key == "101"))
+    unchanged = Enum.find(changed_items, &(&1.source_item_key == "102"))
+
+    assert changed.planned_operation == "update"
+    assert changed.source_revision_key == "8"
+    assert unchanged.planned_operation == "skip"
+    assert Repo.aggregate(RouteItem, :count) == 2
+
+    updated_item = Repo.get_by!(RouteItem, route_id: route.id, source_item_key: "101")
+
+    updated_binding =
+      Repo.get_by!(DeliveryBinding,
+        route_item_id: updated_item.id,
+        destination_id: route.current_destination_id
+      )
+
+    assert updated_item.source_revision_key == "8"
+    assert updated_binding.last_content_hash == changed.content_hash
+  end
+
+  test "a projection contract change updates existing items without duplicating them" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    {:ok, initial} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(initial.id)
+    process_items_with_retry(initial.id)
+
+    original_contract = route.current_revision.contract_version
+
+    assert {:ok, updated_route} =
+             CourierCMS.Routes.update_projections(scope, route, [
+               %{
+                 "target_field" => "projectedTitle",
+                 "source_path" => "payload.title",
+                 "type" => "string"
+               }
+             ])
+
+    assert updated_route.current_revision.contract_version == original_contract + 1
+
+    {:ok, projected_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(projected_run.id)
+    process_items_with_retry(projected_run.id)
+
+    projected_run = Execution.get_run!(scope, projected_run.id)
+    assert projected_run.items_succeeded == 2
+    assert projected_run.items_skipped == 0
+    assert Repo.aggregate(RouteItem, :count) == 2
+
+    assert Enum.all?(Repo.all(DeliveryBinding), fn binding ->
+             binding.last_route_revision_id == updated_route.current_revision_id
+           end)
+  end
+
+  test "an authoritative enumeration token skips the source read when nothing changed" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    {:ok, initial} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(initial.id)
+    process_items_with_retry(initial.id)
+
+    route.source_connection
+    |> Ecto.Changeset.change(settings: %{"fail_read_for" => ["101", "102"]})
+    |> Repo.update!()
+
+    {:ok, replay} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(replay.id)
+    process_items_with_retry(replay.id)
+
+    replay = Execution.get_run!(scope, replay.id)
+    assert replay.status == :succeeded
+    assert replay.items_skipped == 2
+    assert replay.items_failed == 0
+  end
+
+  test "moving a Route retires an active Destination and preserves its delivery bindings" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    process_items_with_retry(run.id)
+
+    old_destination_id = route.current_destination_id
+    old_bindings = Repo.aggregate(DeliveryBinding, :count)
+
+    assert {:ok, new_destination} =
+             Destinations.create_destination(scope, %{
+               name: "Replacement Destination",
+               target_connection_id: route.target_connection_id,
+               scope: %{"namespace" => "site-b"}
+             })
+
+    assert {:ok, moved} = Routes.move_destination(scope, route, new_destination.id)
+    assert moved.current_destination_id == new_destination.id
+    assert moved.current_destination.lifecycle_status == :reserved
+    assert moved.current_destination.owner_route_id == route.id
+
+    old_destination = Destinations.get_destination!(scope, old_destination_id)
+    assert old_destination.lifecycle_status == :retired
+    assert old_destination.owner_route_id == route.id
+    assert Repo.aggregate(DeliveryBinding, :count) == old_bindings
+
+    refute Repo.exists?(
+             from(binding in DeliveryBinding,
+               where: binding.destination_id == ^new_destination.id
+             )
+           )
+
+    event =
+      %ConnectorEvent{}
+      |> ConnectorEvent.changeset(%{
+        contract_version: 1,
+        connection_id: route.source_connection_id,
+        external_event_id: Ecto.UUID.generate(),
+        event_kind: "content.updated",
+        source_item_key: "101",
+        status: :accepted,
+        received_at: DateTime.utc_now()
+      })
+      |> Repo.insert!()
+
+    assert {:ok, [baseline]} = Execution.start_connector_runs(event)
+    assert baseline.trigger_metadata["source_item_key"] == nil
+    assert baseline.trigger_metadata["retrieval_reason"] == "destination_changed"
+    assert :ok = Execution.plan_run(baseline.id)
+    assert length(items(baseline.id)) == 2
+    process_items_with_retry(baseline.id)
+
+    assert Repo.aggregate(
+             from(binding in DeliveryBinding,
+               where: binding.destination_id == ^new_destination.id
+             ),
+             :count
+           ) == 2
+  end
+
+  test "archiving an undelivered Route releases its Destination for another Route" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert {:ok, archived} = Routes.archive_route(scope, route)
+    assert archived.archived_at
+    refute archived.enabled
+
+    destination = Destinations.get_destination!(scope, route.current_destination_id)
+    assert destination.lifecycle_status == :available
+    assert is_nil(destination.owner_route_id)
+
+    assert {:ok, replacement} =
+             Routes.create_route(
+               scope,
+               %{
+                 name: "Replacement Route #{System.unique_integer()}",
+                 source_connection_id: route.source_connection_id,
+                 target_connection_id: route.target_connection_id,
+                 current_destination_id: destination.id,
+                 enabled: false
+               },
+               %{
+                 selection: %{"category" => "Engineering", "tags" => []},
+                 mapping: Routes.default_mapping("fake_source")
+               }
+             )
+
+    assert replacement.current_destination_id == destination.id
+    assert replacement.current_destination.lifecycle_status == :reserved
+    assert replacement.current_destination.owner_route_id == replacement.id
+  end
+
+  test "blocks planning when the exact pinned source artifact is unavailable" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+
+    run
+    |> CourierCMS.Execution.Run.changeset(%{
+      source_artifact: Map.put(run.source_artifact, "checksum", String.duplicate("0", 64))
+    })
+    |> Repo.update!()
+
+    message = "The Run requires an Extension artifact that is not installed on this node"
+    assert {:discard, ^message} = Execution.plan_run(run.id)
+
+    failed = Execution.get_run!(scope, run.id)
+    assert failed.status == :failed
+    assert failed.error_category == "unsupported"
+    assert failed.error_summary == message
+  end
+
+  test "pins unfinished legacy Runs before resuming execution" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+
+    run
+    |> Ecto.Changeset.change(source_artifact: nil, target_artifact: nil)
+    |> Repo.update!()
+
+    assert :ok = Execution.plan_run(run.id)
+
+    pinned = Execution.get_run!(scope, run.id)
+    assert pinned.source_artifact["component_id"] == "fake_source"
+    assert pinned.target_artifact["component_id"] == "fake_target"
+  end
+
+  test "cancelling a Run prevents pending items from being delivered" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    assert {:ok, cancelled} = Execution.cancel_run(scope, run.id)
+    assert cancelled.status == :cancelled
+
+    for item <- items(run.id) do
+      assert item.status == :cancelled
+      assert :ok = Execution.process_run_item(item.id, 1, 3)
+    end
+
+    cancelled = Execution.get_run!(scope, run.id)
+    assert cancelled.status == :cancelled
+    assert Repo.aggregate(DeliveryBinding, :count) == 0
+  end
+
+  test "a terminal item failure queues and delivers a safe operator alert" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    assert_email_sent()
+    route = route_fixture(scope)
+
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    failing_item = Enum.find(items(run.id), &(&1.source_item_key == "102"))
+
+    assert {:discard, "Simulated temporary target outage"} =
+             Execution.process_run_item(failing_item.id, 1, 1)
+
+    assert_enqueued(
+      worker: CourierCMS.Execution.FailureAlertWorker,
+      args: %{"run_item_id" => failing_item.id}
+    )
+
+    assert :ok = CourierCMS.Alerts.deliver_terminal_failure(failing_item.id)
+    assert_email_sent(subject: "CourierCMS delivery failed", to: [{nil, scope.user.email}])
+  end
+
+  defp items(run_id) do
+    RunItem
+    |> where([item], item.run_id == ^run_id)
+    |> order_by([item], asc: item.source_item_key)
+    |> Repo.all()
+  end
+
+  defp process_items_with_retry(run_id) do
+    Enum.each(items(run_id), fn item ->
+      case Execution.process_run_item(item.id, 1, 3) do
+        :ok -> :ok
+        {:error, _message} -> assert :ok = Execution.process_run_item(item.id, 2, 3)
+      end
+    end)
+  end
+
+  defp route_fixture(scope) do
+    source =
+      connection_fixture(scope, "Source #{System.unique_integer()}", "fake_source", %{})
+
+    target =
+      connection_fixture(scope, "Target #{System.unique_integer()}", "fake_target", %{
+        "fail_once_for" => ["102"]
+      })
+
+    destination = destination_fixture(scope, target)
+
+    {:ok, route} =
+      CourierCMS.Routes.create_route(
+        scope,
+        %{
+          name: "Route #{System.unique_integer()}",
+          source_connection_id: source.id,
+          target_connection_id: target.id,
+          current_destination_id: destination.id,
+          enabled: true
+        },
+        %{
+          selection: %{
+            "category" => "Engineering",
+            "tags" => ["architecture"],
+            "published_year" => ""
+          },
+          mapping: CourierCMS.Routes.default_mapping("fake_source")
+        }
+      )
+
+    route
+  end
+
+  defp connection_fixture(scope, name, adapter_key, settings) do
+    %Connection{}
+    |> Connection.changeset(%{
+      name: name,
+      adapter_key: adapter_key,
+      extension_id: "com.couriercms.fake",
+      component_id: adapter_key,
+      endpoint: "https://#{adapter_key}.example",
+      settings: settings,
+      workspace_id: scope.workspace.id
+    })
+    |> Repo.insert!()
+  end
+end

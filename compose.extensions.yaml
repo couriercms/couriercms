@@ -1,0 +1,18 @@
+# Optional development/operations override. Prepare this directory with
+# scripts/prepare-extensions.* before starting the services.
+services:
+  couriercms:
+    volumes:
+      - ./.local/extensions:/var/lib/couriercms/extensions:ro
+
+  couriercms-migrate:
+    volumes:
+      - ./.local/extensions:/var/lib/couriercms/extensions:ro
+
+  couriercms-web:
+    volumes:
+      - ./.local/extensions:/var/lib/couriercms/extensions:ro
+
+  couriercms-worker:
+    volumes:
+      - ./.local/extensions:/var/lib/couriercms/extensions:ro

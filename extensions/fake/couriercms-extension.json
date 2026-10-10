@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "extensionId": "com.couriercms.fake",
+  "name": "Fake development adapters",
+  "version": "0.1.0",
+  "otpApplication": "couriercms_fake",
+  "sdkRequirement": ">= 0.1.0 and < 1.0.0",
+  "couriercmsRequirement": ">= 0.1.0 and < 1.0.0",
+  "elixirRequirement": ">= 1.17.0 and < 2.0.0",
+  "otpRequirement": ">= 27.0.0 and < 40.0.0",
+  "components": [
+    {
+      "id": "fake_source",
+      "kind": "adapter",
+      "module": "CourierCMSExtension.Fake.Source",
+      "capabilities": ["source", "connection_test", "native_filtering", "incremental_changes", "authoritative_change_token"]
+    },
+    {
+      "id": "fake_target",
+      "kind": "adapter",
+      "module": "CourierCMSExtension.Fake.Target",
+      "capabilities": ["target", "connection_test", "canonical_document_storage"]
+    }
+  ]
+}

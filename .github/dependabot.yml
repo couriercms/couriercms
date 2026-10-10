@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /examples/sanity-consumer
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: mix
+    directory: /platform
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: mix
+    directory: /extensions/sdk
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: mix
+    directory: /extensions/fake
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: mix
+    directory: /extensions/wordpress
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: mix
+    directory: /extensions/sanity
+    schedule:
+      interval: weekly
