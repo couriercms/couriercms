@@ -98,9 +98,10 @@ An identity may carry an authoritative change token only under the capability
 contract above. CourierCMS otherwise calls `read_root/3` and compares the canonical
 payload hash.
 
-The planned Content Bundle and Delivery Asset work may add explicit dependency
-and asset-streaming callbacks. Those callbacks are not part of the current SDK
-contract. CMS-specific assembly currently occurs inside `read_root/3`.
+`read_root/3` returns the implemented bounded Content Bundle. The optional
+`read_asset/2` callback returns replayable binary chunks plus declared size,
+checksum, and media type without placing binary data in a database or job.
+CMS-specific assembly and retrieval metadata remain inside the source Adapter.
 
 ## Implemented target behaviour
 
@@ -215,13 +216,18 @@ Every Adapter must pass shared tests covering applicable capabilities:
 
 Live integration tests are opt-in and use disposable test projects/sites.
 
-## Planned Delivery Asset callbacks
+## Delivery Asset callbacks
 
-First-class Delivery Assets will require bounded source streaming and target
-asset create-or-update operations with deterministic identity, ownership, and
-ambiguous-write recovery. Their final callbacks will be added to a future SDK
-contract after the persistence and execution model is implemented. The current
-SDK does not expose `open_asset` or `upload_asset` callbacks.
+The SDK exposes optional `read_asset/2`, `find_asset/3`, `create_asset/2`, and
+`update_asset/4` callbacks. They define bounded source streaming and target
+create-or-update operations with deterministic identity, ownership, and
+ambiguous-write recovery. The fake development Extension exercises this
+contract end to end. The platform materializes a bounded verified stream,
+persists dependencies and jobs atomically, retries asset work independently,
+reconciles stranded jobs, and injects the returned reference before item
+delivery. An official Adapter must pass the relevant contract and integration
+tests before advertising these callbacks. WordPress and Sanity have not yet
+adopted them and retain their documented in-item featured-image behavior.
 
 ## Versioning
 

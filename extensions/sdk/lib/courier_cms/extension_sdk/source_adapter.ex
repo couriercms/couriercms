@@ -1,7 +1,7 @@
 defmodule CourierCMS.ExtensionSDK.SourceAdapter do
   @moduledoc "Behaviour implemented by a source Adapter component."
 
-  alias CourierCMS.ExtensionSDK.{Component, Types}
+  alias CourierCMS.ExtensionSDK.{AssetDescriptor, Component, Types}
 
   @callback component() :: Component.t()
   @callback definition() :: map()
@@ -20,6 +20,8 @@ defmodule CourierCMS.ExtensionSDK.SourceAdapter do
               | {:error, Types.adapter_error()}
   @callback read_root(Types.connection(), Types.normalized_identity(), map()) ::
               {:ok, Types.normalized_content()} | {:error, Types.adapter_error()}
+  @callback read_asset(Types.connection(), AssetDescriptor.t()) ::
+              {:ok, Types.asset_content()} | {:error, Types.adapter_error()}
 
-  @optional_callbacks changes_since: 4
+  @optional_callbacks changes_since: 4, read_asset: 2
 end

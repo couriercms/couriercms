@@ -212,10 +212,10 @@ creates or updates the bindings for the new Destination.
 
 Raw event payload retention should be short and opt-in.
 
-## Planned Delivery Asset entities
+## Delivery Asset entities
 
-First-class Delivery Asset persistence is not part of the current baseline.
-Its implementation will add durable concepts equivalent to, but separate from,
+First-class Delivery Asset persistence is part of both current database
+baselines. It records durable concepts equivalent to, but separate from,
 Delivery Items:
 
 - a Delivery Asset identity and latest observed source metadata;
@@ -226,16 +226,20 @@ Delivery Items:
 - per-Run asset work and attempts so failures, retries, reconciliation, and
   operator reporting do not disappear inside a parent item job.
 
-Exact table names and indexes will be fixed with the implementation migration.
-The required invariants are defined by
-[ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
+The persisted entities are `delivery_assets`, `run_assets`,
+`run_item_assets`, and `delivery_asset_bindings`. Content Bundle reads now
+persist logical assets, item dependencies, and independent jobs atomically and
+idempotently. Asset delivery has its own retries, target binding, required-item
+gate, reference injection, and stranded-job reconciliation. The existing Run
+summary does not yet expose dedicated asset counters, and asset-specific
+operator views and replay controls remain future UI work.
 
 ## Value objects
 
 - `SourceIdentity`: item key, locale key, revision key, state, optional authoritative change token
 - `Selection`: types, scopes, predicates, locales, state policy
 - `AdapterError`: category, retryability, safe message, details
-- `AssetDescriptor`: planned Delivery Asset source identity, media type,
+- `AssetDescriptor`: Delivery Asset source identity, media type,
   filename, checksum, and retrieval handle
 - `DeliveryEnvelope`: CourierCMS and source provenance metadata
 - `DeliveryPayload`: validated value conforming to a Delivery Contract
@@ -272,8 +276,10 @@ pending -> processing -> succeeded
 - Referenced authors, taxonomies, and components are assembled by the source
   Adapter and usually become nested payload data, not independent Delivery
   Items.
-- Delivery Assets are planned durable entities and jobs; the current runtime
-  handles supported media within its parent Run Item attempt.
+- Delivery Asset entities, dependencies, jobs, and bindings are durable.
+  Adapters that advertise the optional callbacks use the independent pipeline;
+  supported media for Adapters that have not adopted it remains within the
+  parent Run Item attempt.
 - Oban jobs are execution machinery, not the source of record for Runs.
 - Source folders and paths are canonical metadata, not target Destination
   hierarchy. Delivery Items are flat within a Destination.

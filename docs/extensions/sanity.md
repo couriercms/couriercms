@@ -59,9 +59,10 @@ headers. A failed asset upload fails that Delivery Item visibly and may retry if
 Sanity reports a transient failure.
 
 This operation currently occurs inside the parent Delivery Item attempt. The
-planned first-class Delivery Asset pipeline will give assets their own durable
-identity, retries, and target bindings without changing the target Adapter's
-responsibility to return a usable Sanity asset reference.
+platform's first-class Delivery Asset pipeline is available, but the Sanity
+Adapter does not yet advertise its optional callbacks. Adopting that contract
+will give Sanity assets independent jobs, retries, and target bindings without
+changing the Adapter's responsibility to return a usable asset reference.
 
 ## Studio package
 

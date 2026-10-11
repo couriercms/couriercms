@@ -104,6 +104,15 @@ config :couriercms,
   extension_signature_policy: signature_policy,
   extension_trusted_keys: trusted_extension_keys
 
+asset_temp_dir =
+  case System.get_env("COURIERCMS_ASSET_TEMP_PATH") do
+    value when is_binary(value) and value != "" -> value
+    _other when local_production? -> Path.join(CourierCMS.LocalPaths.temporary_dir(), "assets")
+    _other -> nil
+  end
+
+if asset_temp_dir, do: config(:couriercms, :asset_temp_dir, Path.expand(asset_temp_dir))
+
 local_secrets =
   if config_env() == :prod and release_profile == :local do
     CourierCMS.LocalSecrets.load_or_create!()
@@ -148,8 +157,10 @@ end
 runtime_config_maxima = %{
   max_planning_pages: 1_000_000,
   delivery_max_attempts: 100,
+  asset_delivery_max_attempts: 100,
   planning_max_attempts: 100,
   delivery_backoff_cap_seconds: 3_600,
+  asset_delivery_backoff_cap_seconds: 3_600,
   planning_backoff_cap_seconds: 3_600,
   retention_batch_size: 100_000
 }
@@ -158,10 +169,16 @@ for {environment_name, application_key, minimum} <- [
       {"COURIERCMS_MAX_SOURCE_PAGE_ITEMS", :max_source_page_items, 1},
       {"COURIERCMS_MAX_RUN_ITEMS", :max_run_items, 1},
       {"COURIERCMS_MAX_DELIVERY_BYTES", :max_delivery_bytes, 1_024},
+      {"COURIERCMS_MAX_ASSET_BYTES", :max_asset_bytes, 1_024},
+      {"COURIERCMS_MAX_CONTENT_BUNDLE_NODES", :max_content_bundle_nodes, 1},
+      {"COURIERCMS_MAX_CONTENT_BUNDLE_RELATIONSHIPS", :max_content_bundle_relationships, 0},
+      {"COURIERCMS_MAX_CONTENT_BUNDLE_ASSETS", :max_content_bundle_assets, 0},
       {"COURIERCMS_MAX_PLANNING_PAGES", :max_planning_pages, 1},
       {"COURIERCMS_DELIVERY_MAX_ATTEMPTS", :delivery_max_attempts, 1},
+      {"COURIERCMS_ASSET_DELIVERY_MAX_ATTEMPTS", :asset_delivery_max_attempts, 1},
       {"COURIERCMS_PLANNING_MAX_ATTEMPTS", :planning_max_attempts, 1},
       {"COURIERCMS_DELIVERY_BACKOFF_CAP_SECONDS", :delivery_backoff_cap_seconds, 1},
+      {"COURIERCMS_ASSET_DELIVERY_BACKOFF_CAP_SECONDS", :asset_delivery_backoff_cap_seconds, 1},
       {"COURIERCMS_PLANNING_BACKOFF_CAP_SECONDS", :planning_backoff_cap_seconds, 1},
       {"COURIERCMS_MAX_ADAPTER_RESPONSE_BYTES", :max_adapter_response_bytes, 1_024},
       {"COURIERCMS_MAX_WEBHOOK_BYTES", :max_webhook_bytes, 1_024},

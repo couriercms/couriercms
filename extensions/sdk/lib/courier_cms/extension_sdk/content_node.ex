@@ -1,5 +1,5 @@
 defmodule CourierCMS.ExtensionSDK.ContentNode do
-  @moduledoc "Normalized source content node used to assemble a bounded content graph."
+  @moduledoc "One normalized content node contained in a ContentBundle."
 
   alias CourierCMS.ExtensionSDK.SourceIdentity
 
@@ -9,8 +9,6 @@ defmodule CourierCMS.ExtensionSDK.ContentNode do
             name: nil,
             path: nil,
             fields: %{},
-            references: [],
-            assets: [],
             metadata: %{}
 
   @type t :: %__MODULE__{
@@ -19,8 +17,6 @@ defmodule CourierCMS.ExtensionSDK.ContentNode do
           name: String.t() | nil,
           path: String.t() | nil,
           fields: map(),
-          references: list(),
-          assets: list(),
           metadata: map()
         }
 end

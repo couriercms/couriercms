@@ -26,10 +26,10 @@ related source content should be included and the bounds that apply. The source
 Adapter, not a generic platform crawler, interprets those rules using its CMS's
 reference, component, datasource, taxonomy, locale, and media semantics.
 
-Today, each implemented source Adapter returns its assembled normalized root
-through `read_root/3`. A planned Content Bundle contract will make the root,
-included relationships, Delivery Asset descriptors, and generic safety bounds
-explicit without moving CMS-specific traversal into the platform.
+Each implemented source Adapter returns a bounded Content Bundle through
+`read_root/3`. The SDK contract makes the root, included content,
+relationships, Delivery Asset descriptors, and generic safety bounds explicit
+without moving CMS-specific traversal into the platform.
 
 For each relationship a Route can:
 
@@ -172,11 +172,13 @@ Before activation, users should be able to select representative source items an
 
 Preview must redact configured sensitive fields and must not write to the target unless explicitly running a delivery test.
 
-## Delivery Assets (planned)
+## Delivery Assets
 
 A Delivery Asset is a durable media or file dependency with independent
-identity, metadata, retry state, and target binding. Required Delivery Assets
-will be delivered before their dependent Delivery Item; a required asset
-failure prevents the item from succeeding. The current runtime handles
-supported assets inside the parent item attempt rather than through independent
-asset records and jobs.
+identity, metadata, retry state, and target binding. The database baselines,
+SDK stream contract, atomic dependency/job persistence, bounded transfer,
+independent retries, required-item gating, target-reference injection, and
+stranded-job reconciliation are implemented. The full path is used only when
+both Adapters advertise its optional callbacks. Official Adapters that have not
+adopted it retain their documented in-item behavior. Asset-specific operator
+controls remain planned.

@@ -3,7 +3,7 @@ defmodule CourierCMS.MappingTest do
 
   alias CourierCMS.ExtensionSDK.AdapterError
   alias CourierCMS.Mapping
-  alias CourierCMS.ExtensionSDK.{ContentNode, SourceIdentity}
+  alias CourierCMS.ExtensionSDK.{ContentBundle, ContentNode, SourceIdentity}
 
   test "parses and formats a deterministic mapping" do
     assert {:ok, mapping} = Mapping.parse("title=fields.title\nauthor.name=fields.author.name")
@@ -40,8 +40,12 @@ defmodule CourierCMS.MappingTest do
     }
 
     node = %ContentNode{identity: identity, source_type: "article", fields: %{"title" => "A"}}
+    bundle = %ContentBundle{root: node}
 
     assert {:error, %AdapterError{category: :mapping_failed}} =
-             Mapping.apply(node, %{"author" => "fields.title", "author.name" => "fields.title"})
+             Mapping.apply(bundle, %{
+               "author" => "fields.title",
+               "author.name" => "fields.title"
+             })
   end
 end

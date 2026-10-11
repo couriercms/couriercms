@@ -111,9 +111,9 @@ channel-native model.
 ### Content Hub, PIM, and DAM-style distribution
 
 Structured product or content-hub records can be delivered into consuming CMSs.
-Supported assets may currently remain remote references or be handled by the
-target Adapter during the parent item attempt. First-class Delivery Assets are
-planned for independent delivery, retries, and target bindings.
+When both Adapters support the optional contract, first-class Delivery Assets
+have independent delivery, retries, and target bindings. Other Adapters may
+retain remote references or their documented in-item asset behavior.
 
 CourierCMS is most valuable for structured content that must exist locally in the consuming CMS rather than being fetched at request time.
 

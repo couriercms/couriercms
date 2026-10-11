@@ -15,7 +15,7 @@ defmodule CourierCMSExtension.Fake.Target do
       component_id: "fake_target",
       kind: :adapter,
       version: "0.1.0",
-      capabilities: [:target, :connection_test, :canonical_document_storage]
+      capabilities: [:target, :connection_test, :assets, :canonical_document_storage]
     )
   end
 
@@ -56,6 +56,7 @@ defmodule CourierCMSExtension.Fake.Target do
       "connection_test" => true,
       "destination_validation" => true,
       "idempotent_delivery" => true,
+      "assets" => "streamed_create_or_update",
       "canonical_document_storage" => true,
       "target_projections" => %{"types" => @projection_types}
     }
@@ -135,6 +136,51 @@ defmodule CourierCMSExtension.Fake.Target do
     end
   end
 
+  @impl true
+  def find_asset(connection, %{id: destination_id}, asset_key) do
+    case Store.fetch_asset(connection_id(connection), destination_id, asset_key) do
+      nil -> {:ok, :not_found}
+      asset -> {:ok, %{target_reference: asset.target_reference, ownership: asset.ownership}}
+    end
+  end
+
+  @impl true
+  def create_asset(connection, asset) do
+    record = asset_record(connection, asset)
+
+    case Store.put_new_asset(
+           connection_id(connection),
+           asset.destination.id,
+           asset.asset_key,
+           record
+         ) do
+      :ok -> {:ok, result(record)}
+      :exists -> recover_asset_create(connection, asset)
+    end
+  end
+
+  @impl true
+  def update_asset(connection, target_reference, asset, ownership) do
+    with :ok <- verify_asset_ownership(asset, ownership),
+         record = asset_record(connection, asset),
+         :ok <-
+           Store.replace_asset(
+             connection_id(connection),
+             asset.destination.id,
+             asset.asset_key,
+             target_reference,
+             record
+           ) do
+      {:ok, result(record)}
+    else
+      :not_found ->
+        {:error, AdapterError.new(:source_not_found, "Fake target asset was not found")}
+
+      {:error, %AdapterError{} = error} ->
+        {:error, error}
+    end
+  end
+
   defp recover_create(connection, destination, envelope) do
     case find_delivery(connection, destination, envelope.delivery_key) do
       {:ok, %{target_reference: id, ownership: ownership}} ->
@@ -146,6 +192,44 @@ defmodule CourierCMSExtension.Fake.Target do
         {:error, AdapterError.new(:target_rejected, "Fake target could not create the delivery")}
     end
   end
+
+  defp recover_asset_create(connection, asset) do
+    case find_asset(connection, asset.destination, asset.asset_key) do
+      {:ok, %{target_reference: id, ownership: ownership}} ->
+        with :ok <- verify_asset_ownership(asset, ownership) do
+          {:ok, %{target_reference: id, ownership: ownership}}
+        end
+
+      _other ->
+        {:error, AdapterError.new(:target_rejected, "Fake target could not create the asset")}
+    end
+  end
+
+  defp asset_record(connection, asset) do
+    bytes = asset.content.chunks |> Enum.to_list() |> IO.iodata_to_binary()
+
+    %{
+      connection_id: connection_id(connection),
+      couriercms_asset_key: asset.asset_key,
+      target_reference: "fake-asset:#{asset.destination.id}:#{asset.asset_key}",
+      ownership: stringify_keys(asset.ownership),
+      descriptor: asset.descriptor,
+      bytes: bytes
+    }
+  end
+
+  defp verify_asset_ownership(asset, ownership) do
+    expected = stringify_keys(asset.ownership)
+
+    if ownership == expected do
+      :ok
+    else
+      {:error,
+       AdapterError.new(:ownership_violation, "Target asset ownership metadata does not match")}
+    end
+  end
+
+  defp stringify_keys(map), do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   defp record(connection, delivery) do
     envelope = delivery.envelope

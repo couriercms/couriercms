@@ -3,7 +3,15 @@ defmodule CourierCMSExtension.Fake.Source do
 
   @behaviour CourierCMS.ExtensionSDK.SourceAdapter
 
-  alias CourierCMS.ExtensionSDK.{AdapterError, Component, ContentNode, SourceIdentity}
+  alias CourierCMS.ExtensionSDK.{
+    AdapterError,
+    AssetContent,
+    AssetDescriptor,
+    Component,
+    ContentBundle,
+    ContentNode,
+    SourceIdentity
+  }
 
   @impl true
   def component do
@@ -17,7 +25,8 @@ defmodule CourierCMSExtension.Fake.Source do
         :connection_test,
         :native_filtering,
         :incremental_changes,
-        :authoritative_change_token
+        :authoritative_change_token,
+        :assets
       ]
     )
   end
@@ -231,10 +240,28 @@ defmodule CourierCMSExtension.Fake.Source do
         {:error, AdapterError.new(:temporarily_unavailable, "Fake source read was not expected")}
 
       is_integer(setting(connection, "synthetic_item_count", nil)) ->
-        {:ok, synthetic_node(identity)}
+        content_bundle(synthetic_node(identity))
 
       true ->
         read_fixture_root(connection, identity)
+    end
+  end
+
+  @impl true
+  def read_asset(connection, %AssetDescriptor{source_key: source_key} = descriptor) do
+    if source_key in setting(connection, "fail_asset_for", []) do
+      {:error,
+       AdapterError.new(:temporarily_unavailable, "Fake asset read failed", retryable: true)}
+    else
+      content = "fake-asset:#{source_key}:#{descriptor.variant_key}"
+
+      {:ok,
+       %AssetContent{
+         chunks: [content],
+         byte_size: byte_size(content),
+         checksum: Base.encode16(:crypto.hash(:sha256, content), case: :lower),
+         media_type: descriptor.media_type || "application/octet-stream"
+       }}
     end
   end
 
@@ -249,33 +276,34 @@ defmodule CourierCMSExtension.Fake.Source do
       post ->
         normalized_identity = identity(post)
 
-        {:ok,
-         %ContentNode{
-           identity: normalized_identity,
-           source_type: "post",
-           name: post.title,
-           path: "/posts/#{post.slug}",
-           fields: %{
-             "title" => post.title,
-             "slug" => post.slug,
-             "excerpt" => post.excerpt,
-             "body" => %{"format" => "html", "value" => post.body},
-             "canonical_url" => "https://source.example/posts/#{post.slug}",
-             "published_at" => DateTime.to_iso8601(post.published_at),
-             "modified_at" => DateTime.to_iso8601(post.modified_at),
-             "author" => post.author,
-             "categories" => [
-               %{
-                 "source_id" => String.downcase(post.category),
-                 "name" => post.category,
-                 "slug" => String.downcase(post.category)
-               }
-             ],
-             "tags" => Enum.map(post.tags, &%{"source_id" => &1, "name" => &1, "slug" => &1}),
-             "featured_image" => post.featured_image
-           },
-           metadata: %{"adapter" => "fake_source"}
-         }}
+        root = %ContentNode{
+          identity: normalized_identity,
+          source_type: "post",
+          name: post.title,
+          path: "/posts/#{post.slug}",
+          fields: %{
+            "title" => post.title,
+            "slug" => post.slug,
+            "excerpt" => post.excerpt,
+            "body" => %{"format" => "html", "value" => post.body},
+            "canonical_url" => "https://source.example/posts/#{post.slug}",
+            "published_at" => DateTime.to_iso8601(post.published_at),
+            "modified_at" => DateTime.to_iso8601(post.modified_at),
+            "author" => post.author,
+            "categories" => [
+              %{
+                "source_id" => String.downcase(post.category),
+                "name" => post.category,
+                "slug" => String.downcase(post.category)
+              }
+            ],
+            "tags" => Enum.map(post.tags, &%{"source_id" => &1, "name" => &1, "slug" => &1}),
+            "featured_image" => post.featured_image
+          },
+          metadata: %{"adapter" => "fake_source"}
+        }
+
+        content_bundle(root)
     end
   end
 
@@ -302,6 +330,33 @@ defmodule CourierCMSExtension.Fake.Source do
       fields: %{"title" => identity.item_key, "body" => "Synthetic load-test content"},
       metadata: %{"adapter" => "fake_source", "synthetic" => true}
     }
+  end
+
+  defp content_bundle(%ContentNode{} = root) do
+    featured_image = root.fields["featured_image"]
+
+    assets =
+      if is_map(featured_image) do
+        [
+          %AssetDescriptor{
+            source_key: featured_image["source_id"],
+            field_path: "fields.featured_image",
+            filename: featured_image["filename"],
+            media_type: featured_image["media_type"],
+            required: true,
+            retrieval: %{"kind" => "fake"},
+            metadata: Map.take(featured_image, ["alt"])
+          }
+        ]
+      else
+        []
+      end
+
+    ContentBundle.new(%{
+      root: root,
+      assets: assets,
+      metadata: %{"adapter" => "fake_source"}
+    })
   end
 
   defp identity(post) do

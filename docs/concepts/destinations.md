@@ -154,13 +154,14 @@ include those actions in delivery status.
 
 ## Delivery Assets
 
-The accepted next architecture treats media and file dependencies as
-first-class Delivery Assets with their own identity, retries, and target
+The accepted architecture treats media and file dependencies as first-class
+Delivery Assets with their own identity, retries, and target
 bindings. Delivery Items remain flat. A target Adapter may store assets in a
 separate CMS media library, object store, or asset service associated with the
 Destination.
 
 Required Delivery Assets must be accepted before their dependent Delivery Item
-can succeed. CourierCMS never deletes target assets. Independent Delivery Asset
-persistence and jobs are planned; currently supported media is handled during
-the parent Delivery Item attempt.
+can succeed. CourierCMS never deletes target assets. Asset identities and item
+dependencies are persisted. Independent jobs, retries, and target-reference
+injection are still planned; currently supported production media is handled
+during the parent Delivery Item attempt.

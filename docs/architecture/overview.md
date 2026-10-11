@@ -92,8 +92,8 @@ Owns configured Adapter instances, endpoints, non-secret settings, encrypted cre
 
 Owns Routes, immutable Route Revisions, source selections, aggregation
 configuration, payload contracts, Delivery Item naming configuration, and
-trigger policy. Generic Content Bundle mapping and Extension Processor
-execution are accepted next-stage capabilities, not current runtime features.
+trigger policy. Content Bundle validation and root mapping are implemented;
+Extension Processor execution is an accepted next-stage capability.
 
 Mutable Route identity is limited to operator-facing name and active state.
 Changing selection, aggregation, mapping, projections, transformations, or
@@ -104,10 +104,10 @@ establish a new Full Scan baseline before later incremental discovery.
 ### Transport
 
 Owns Canonical Delivery Documents, Projection definitions, and validation
-independent of a particular CMS. Source Adapters currently assemble normalized
-root content in `read_root/3`. The planned Content Bundle and Delivery Asset
-contracts will expose portable assembly results and asset work without moving
-CMS-specific traversal into the platform. Public boundary values such as
+independent of a particular CMS. Source Adapters assemble normalized Content
+Bundles in `read_root/3`. The SDK exposes portable assembly results and an
+optional asset-streaming contract without moving CMS-specific traversal into
+the platform. Public boundary values such as
 normalized source identity, content nodes, delivery envelopes, and Adapter
 errors live in the standalone Extension SDK.
 
@@ -223,18 +223,24 @@ Extension architecture. Segmented-network support requires a separate decision.
 5. CourierCMS validates the returned content and builds the Delivery Contract payload.
 6. CourierCMS combines the stable envelope and complete payload into the Canonical Delivery Document.
 7. Configured Projection Fields are derived from that same document and validated; they never become a second source of truth.
-8. The target Adapter performs any currently supported asset operation within
-   the parent item attempt.
-9. CourierCMS derives a recognizable, collision-safe flat Delivery Item name
+8. When both Adapters support the independent asset contract, CourierCMS
+   schedules, retries, binds, and reconciles Delivery Assets before resuming the
+   dependent item; otherwise the Adapter may retain its documented in-item
+   asset behavior.
+9. CourierCMS injects successful asset target references at the bundle's
+   declared payload paths.
+10. CourierCMS derives a recognizable, collision-safe flat Delivery Item name
     from the Route Revision's naming field and immutable Delivery Item key.
-10. The target Adapter resolves or creates the Delivery Item and writes the canonical document plus any projections atomically where the CMS permits.
-11. Ownership is verified before an existing item is updated.
-12. CourierCMS records the Delivery Binding and Run Item result.
-13. Progress is published to the UI and terminal failures can raise alerts.
+11. The target Adapter resolves or creates the Delivery Item and writes the canonical document plus any projections atomically where the CMS permits.
+12. Ownership is verified before an existing item or asset is updated.
+13. CourierCMS records the Delivery Binding and Run Item result.
+14. Progress is published to the UI and terminal failures can raise alerts.
 
-The accepted next execution stage introduces a bounded Content Bundle,
-platform-invoked target-independent Processors, and durable Delivery Asset jobs.
-Required Assets will complete before the dependent Delivery Item. See
+The bounded Content Bundle and independent Delivery Asset execution are
+implemented foundations. The fake Extension validates the full portable path;
+official Adapters must adopt and test the callbacks before advertising it. The
+accepted next execution stage adds platform-invoked target-independent
+Processors and asset-specific operator controls. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
 
 ## Extension boundaries

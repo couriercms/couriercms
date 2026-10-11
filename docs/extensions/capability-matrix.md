@@ -2,7 +2,7 @@
 
 This matrix records implemented behavior, not aspirations. Update it with every Adapter capability change.
 
-Legend: `Planned`, `Implemented`, `Unsupported`, `Unknown`.
+Legend: `Planned`, `Implemented`, `Not adopted`, `Unsupported`, `Unknown`.
 
 | Capability | WordPress | Sanity | Sitecore | Drupal | Contentful |
 |---|---|---|---|---|---|
@@ -20,12 +20,15 @@ Legend: `Planned`, `Implemented`, `Unsupported`, `Unknown`.
 | Locales | Connection default; plugins deferred | Future | Future | Future | Future |
 | Revisions | Implemented using published `modified_gmt` | Future | Future | Future | Future |
 | Asset handling inside Delivery Item attempt | Implemented featured-image descriptor | Implemented public URL upload | Future | Future | Future |
-| First-class Delivery Asset pipeline | Planned | Planned | Planned | Planned | Planned |
+| First-class Delivery Asset pipeline | Not adopted | Not adopted | Planned | Planned | Planned |
 | Destination provisioning | N/A as V0 target | Implemented schema package; explicit deployment | Future | Future | Future |
 | Ownership verification | N/A as V0 target | Implemented | Future | Future | Future |
 
 ## Matrix rules
 
 - `Planned` does not permit production use.
+- The platform pipeline and fake Extension implement the complete optional
+  Delivery Asset contract; `Not adopted` means that production Adapter still
+  uses its documented in-item behavior.
 - Capability details and limits belong in Adapter-specific documentation once implementation begins.
 - The runtime capability declaration is authoritative for a configured Connection; this matrix is a human overview.

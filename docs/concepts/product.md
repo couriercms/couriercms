@@ -149,11 +149,14 @@ automation valid CourierCMS endpoints.
 These capabilities define the current working foundation; they are not a 1.0
 release or compatibility promise.
 
-## Accepted next architecture
+## Current foundation and next execution stage
 
 The current implementation assembles referenced content inside each source
-Adapter and handles supported media during the parent Delivery Item attempt.
-The accepted next architecture introduces a generic bounded Content Bundle,
-Extension Processor execution, and durable first-class Delivery Assets. These
-are planned capabilities, not claims about the current runtime. See
+Adapter and returns it through the bounded Content Bundle contract. When both
+Adapters support the optional asset callbacks, the platform persists,
+transfers, retries, binds, and reconciles Delivery Assets independently before
+delivering dependent items. Current official production Adapters retain their
+documented in-item media behavior until they adopt that contract. Extension
+Processor execution and asset-specific operator controls are accepted next
+capabilities, not claims about the current runtime. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).

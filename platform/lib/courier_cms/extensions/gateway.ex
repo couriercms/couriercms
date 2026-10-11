@@ -9,7 +9,8 @@ defmodule CourierCMS.Extensions.Gateway do
     test_connection: 1,
     enumerate: 3,
     changes_since: 4,
-    read_root: 3
+    read_root: 3,
+    read_asset: 2
   }
   @target_operations %{
     capabilities: 1,
@@ -19,7 +20,10 @@ defmodule CourierCMS.Extensions.Gateway do
     validate_projections: 2,
     find_delivery: 3,
     create_delivery: 2,
-    update_delivery: 4
+    update_delivery: 4,
+    find_asset: 3,
+    create_asset: 2,
+    update_asset: 4
   }
 
   def fetch_component(adapter_key) do

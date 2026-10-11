@@ -32,9 +32,12 @@ defmodule CourierCMS.Execution.RunItem do
 
     belongs_to :run, Run
     belongs_to :route_item, RouteItem
+    has_many :run_item_assets, CourierCMS.Assets.RunItemAsset
 
     timestamps()
   end
+
+  @type t :: %__MODULE__{}
 
   @doc false
   def changeset(run_item, attrs) do

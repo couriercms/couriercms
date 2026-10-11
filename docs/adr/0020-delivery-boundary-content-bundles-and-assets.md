@@ -18,8 +18,9 @@ pretending that every CMS exposes the same traversal model.
 
 Large or shared media needs stronger reliability semantics than an incidental
 field inside a content write. Extension Processors are also useful for bounded,
-target-independent transformations, but the current runtime does not yet
-execute Processor components or persist assets as independent delivery work.
+target-independent transformations. The runtime now supports independent asset
+delivery when both Adapters advertise the optional SDK callbacks. Processor
+execution remains future work.
 
 ## Decision
 
@@ -44,7 +45,7 @@ component or roadmap requirement.
 
 Each source Adapter owns CMS-specific discovery and assembly. It understands
 its CMS's references, components, datasources, taxonomy, locales, and media.
-The planned portable output of that work is a bounded **Content Bundle**:
+The portable output of that work is the implemented bounded **Content Bundle**:
 
 - one selected root Content Item;
 - normalized included content and relationships;
@@ -80,8 +81,8 @@ the package validator, gateway, execution pipeline, and tests support it.
 
 ### Delivery Assets
 
-A **Delivery Asset** is a planned first-class, durable media or file dependency
-needed by one or more Delivery Items. It has its own deterministic source
+A **Delivery Asset** is a first-class, durable media or file dependency needed
+by one or more Delivery Items. It has its own deterministic source
 identity, content metadata, status, retry history, checksum when available, and
 target binding. Binary data is streamed or stored temporarily; it is not put in
 database JSON or job arguments.
@@ -96,10 +97,14 @@ Delivery Assets are logically related to a flat Destination even when the
 target system stores them in a separate media library, bucket, or asset store.
 They do not introduce a source-derived content hierarchy.
 
-First-class Delivery Asset persistence and jobs are an accepted design but are
-not yet implemented. The current WordPress-to-Sanity path handles a featured
-image during the parent Delivery Item attempt; that behavior remains current
-until the durable asset pipeline replaces it.
+First-class Delivery Asset persistence, bounded temporary-file transfer,
+independent jobs and retries, required-dependency gating, target-reference
+injection, binding reuse, and stranded-job reconciliation are implemented.
+The fake Extension exercises the complete contract in both release profiles.
+The current WordPress and Sanity Adapters do not yet advertise the independent
+callbacks, so that production path continues to handle a featured image during
+the parent Delivery Item attempt. Bounded operator views and replay controls for
+asset work remain to be added.
 
 ## Consequences
 
@@ -109,10 +114,11 @@ until the durable asset pipeline replaces it.
 - CMS-specific graph knowledge stays at the Adapter edge while the platform
   can enforce portable safety bounds.
 - Flat Delivery Items remain easy to browse and operate.
-- Assets can eventually retry, deduplicate, reconcile, and report failures
-  independently without weakening Delivery Item reliability.
-- Processor and Delivery Asset work must be implemented and tested before it
-  is advertised as a current capability.
+- Assets can retry, deduplicate, reconcile, and record failures independently
+  without weakening Delivery Item reliability.
+- An Adapter must pass the asset contract tests before advertising the
+  independent pipeline. Processor execution must be implemented and tested
+  before it is advertised as a current capability.
 
 ## Alternatives considered
 

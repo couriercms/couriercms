@@ -23,6 +23,7 @@ defmodule CourierCMS.Routes.Route do
     belongs_to :current_destination, Destination
     belongs_to :current_revision, RouteRevision
     has_many :revisions, RouteRevision
+    has_many :delivery_assets, CourierCMS.Assets.DeliveryAsset
 
     timestamps()
   end

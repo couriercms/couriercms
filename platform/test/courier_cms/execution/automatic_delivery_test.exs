@@ -4,6 +4,7 @@ defmodule CourierCMS.Execution.AutomaticDeliveryTest do
   alias CourierCMS.Connectors
   alias CourierCMS.Connectors.{ConnectorEvent, ConnectorEventWorker}
   alias CourierCMS.Connections.Connection
+  alias CourierCMS.Assets.RunAsset
   alias CourierCMS.Execution
   alias CourierCMS.Execution.{Checkpoint, Run, RunItem}
   alias CourierCMS.Repo
@@ -356,6 +357,45 @@ defmodule CourierCMS.Execution.AutomaticDeliveryTest do
            ) == 3
   end
 
+  test "reconciliation requeues stranded Delivery Assets after a process crash" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    item = Repo.get_by!(RunItem, run_id: run.id, source_item_key: "101")
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+    asset = Repo.get_by!(RunAsset, run_id: run.id)
+
+    Repo.delete_all(
+      from(job in Oban.Job, where: job.worker == "CourierCMS.Execution.AssetWorker")
+    )
+
+    stale_at = DateTime.add(DateTime.utc_now(), -2, :hour)
+
+    Repo.update_all(from(current in RunAsset, where: current.id == ^asset.id),
+      set: [status: :processing, updated_at: stale_at]
+    )
+
+    previous = Application.get_env(:couriercms, :stranded_after_ms)
+    Application.put_env(:couriercms, :stranded_after_ms, 60_000)
+    on_exit(fn -> Application.put_env(:couriercms, :stranded_after_ms, previous) end)
+
+    assert :ok =
+             CourierCMS.Execution.ReconcileWorker.perform(%Oban.Job{args: %{"v" => 1}})
+
+    assert Repo.get!(RunAsset, asset.id).status == :pending
+
+    assert Repo.exists?(
+             from(job in Oban.Job,
+               where:
+                 job.worker == "CourierCMS.Execution.AssetWorker" and
+                   job.args["run_asset_id"] == ^asset.id and
+                   job.state in ["available", "scheduled", "executing", "retryable"]
+             )
+           )
+  end
+
   test "retention removes old completed Runs and their Run Items in a bounded batch" do
     scope = CourierCMS.AccountsFixtures.user_scope_fixture()
     route = route_fixture(scope)
@@ -436,6 +476,21 @@ defmodule CourierCMS.Execution.AutomaticDeliveryTest do
     RunItem
     |> where([item], item.run_id == ^run_id)
     |> Repo.all()
-    |> Enum.each(&assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+    |> Enum.each(&process_item/1)
+  end
+
+  defp process_item(item) do
+    case Execution.process_run_item(item.id, 1, 3) do
+      :ok ->
+        :ok
+
+      {:snooze, _seconds} ->
+        RunAsset
+        |> where([asset], asset.run_id == ^item.run_id and asset.status == :pending)
+        |> Repo.all()
+        |> Enum.each(&assert(:ok = Execution.process_run_asset(&1.id, 1, 3)))
+
+        assert :ok = Execution.process_run_item(item.id, 1, 3)
+    end
   end
 end

@@ -23,9 +23,9 @@ optional `change_token` is not revision history or identity: an Adapter may
 supply it only when it declares that the token covers the root and every bounded
 dependency included in the aggregated Delivery Item.
 
-## Current normalized source content
+## Normalized source content
 
-A source Adapter currently returns normalized content from `read_root/3`:
+A source Adapter returns a Content Bundle from `read_root/3`:
 
 ```text
 identity
@@ -39,11 +39,12 @@ source metadata required for mapping or diagnostics
 
 Adapter-specific metadata is namespaced and must not be required by unrelated adapters.
 
-## Content Bundle (planned)
+## Content Bundle
 
-The planned Content Bundle makes the root, included content and relationships,
-and Delivery Asset descriptors explicit. CMS-specific discovery remains inside
-the source Adapter. The platform will validate generic bounds and invariants:
+The implemented Content Bundle makes the root, included content and
+relationships, and Delivery Asset descriptors explicit. CMS-specific
+discovery remains inside the source Adapter. The SDK and platform validate
+generic bounds and invariants:
 
 - Maximum traversal depth
 - Maximum nodes per root
@@ -54,8 +55,8 @@ the source Adapter. The platform will validate generic bounds and invariants:
 - Missing dependency policy
 
 Included content normally becomes nested payload values, not separate Delivery
-Items. The current SDK does not expose a generic dependency traversal API;
-implemented source Adapters assemble their normalized result in `read_root/3`.
+Items. The SDK deliberately does not expose a generic dependency traversal
+API; source Adapters assemble their CMS-specific result in `read_root/3`.
 
 ## Canonical Delivery Document
 
@@ -119,22 +120,29 @@ Delivery Contracts may contain:
 
 Payload field names describe content meaning rather than presentation.
 
-## Delivery Assets (planned)
+## Delivery Assets
 
 An asset descriptor includes source identity, filename, media type, size when
 known, checksum when known, alt/caption metadata, and a bounded retrieval
 mechanism. Binary data is streamed or written to controlled temporary storage;
 it is not put in database JSON or Oban arguments.
 
-A first-class Delivery Asset will have independent durable status, retry
-history, and a target binding. Required Delivery Assets are delivered before
-their dependent Delivery Item, and their target references are included in the
-Canonical Delivery Document. Asset ownership uses the same Route namespace
-principles, and CourierCMS never deletes target assets.
+A first-class Delivery Asset has a persisted logical identity, per-Run state,
+item dependency, and Destination-scoped binding model. Required Delivery
+Assets are delivered before their dependent Delivery Item, and their target
+references are included in the Canonical Delivery Document. Asset
+ownership uses the same Route namespace principles, and CourierCMS never
+deletes target assets.
 
-This independent pipeline is not yet implemented. The current
-WordPress-to-Sanity path resolves its supported featured image during the
-parent Delivery Item attempt.
+The runtime creates asset records and Oban jobs atomically, transfers each
+stream through bounded controlled temporary storage, verifies declared size and
+checksum, retries independently, reuses verified bindings, gates dependent
+items, injects target references at declared payload paths, and reconciles
+stranded work. These semantics activate only when both configured Adapters
+advertise the optional asset callbacks. The current WordPress-to-Sanity path
+does not yet opt in and therefore resolves its supported featured image during
+the parent Delivery Item attempt. Asset-specific operator views and manual
+replay controls remain future UI work.
 
 ## Validation and hashing
 

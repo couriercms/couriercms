@@ -21,6 +21,18 @@ defmodule CourierCMS.ExtensionSDK.TargetAdapter do
   @callback update_delivery(Types.connection(), String.t(), Types.delivery(), map()) ::
               {:ok, %{target_reference: String.t(), ownership: map()}}
               | {:error, Types.adapter_error()}
+  @callback find_asset(Types.connection(), map(), String.t()) ::
+              {:ok, :not_found | %{target_reference: String.t(), ownership: map()}}
+              | {:error, Types.adapter_error()}
+  @callback create_asset(Types.connection(), Types.asset_delivery()) ::
+              {:ok, %{target_reference: String.t(), ownership: map()}}
+              | {:error, Types.adapter_error()}
+  @callback update_asset(Types.connection(), String.t(), Types.asset_delivery(), map()) ::
+              {:ok, %{target_reference: String.t(), ownership: map()}}
+              | {:error, Types.adapter_error()}
 
-  @optional_callbacks validate_destination: 2
+  @optional_callbacks validate_destination: 2,
+                      find_asset: 3,
+                      create_asset: 2,
+                      update_asset: 4
 end

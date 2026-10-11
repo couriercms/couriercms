@@ -4,7 +4,15 @@ defmodule CourierCMSExtension.WordPress.Source do
   @behaviour CourierCMS.ExtensionSDK.SourceAdapter
 
   alias CourierCMSExtension.WordPress.Client
-  alias CourierCMS.ExtensionSDK.{AdapterError, Component, ContentNode, SourceIdentity}
+
+  alias CourierCMS.ExtensionSDK.{
+    AdapterError,
+    AssetDescriptor,
+    Component,
+    ContentBundle,
+    ContentNode,
+    SourceIdentity
+  }
 
   @default_page_size 50
 
@@ -159,7 +167,7 @@ defmodule CourierCMSExtension.WordPress.Source do
     with {:ok, post} <- client(connection).get_post(connection, expected_identity.item_key),
          {:ok, actual_identity} <- identity(connection, post),
          :ok <- ensure_revision(expected_identity, actual_identity) do
-      {:ok, content_node(post, actual_identity)}
+      content_bundle(post, actual_identity)
     end
   end
 
@@ -267,13 +275,13 @@ defmodule CourierCMSExtension.WordPress.Source do
     end
   end
 
-  defp content_node(post, identity) do
+  defp content_bundle(post, identity) do
     embedded = post["_embedded"] || %{}
     author = embedded |> Map.get("author", []) |> List.first() |> normalize_author()
     terms = embedded |> Map.get("wp:term", []) |> List.flatten()
-    media = embedded |> Map.get("wp:featuredmedia", []) |> List.first()
+    media = embedded |> Map.get("wp:featuredmedia", []) |> List.first() |> normalize_media()
 
-    %ContentNode{
+    root = %ContentNode{
       identity: identity,
       source_type: "post",
       name: rendered(post, "title") |> plain_text(),
@@ -289,7 +297,7 @@ defmodule CourierCMSExtension.WordPress.Source do
         "author" => author,
         "categories" => normalize_terms(terms, "category"),
         "tags" => normalize_terms(terms, "post_tag"),
-        "featured_image" => normalize_media(media)
+        "featured_image" => media
       },
       metadata: %{
         "adapter" => "wordpress",
@@ -297,6 +305,28 @@ defmodule CourierCMSExtension.WordPress.Source do
         "wordpress_format" => post["format"]
       }
     }
+
+    ContentBundle.new(%{
+      root: root,
+      assets: asset_descriptors(media),
+      metadata: %{"adapter" => "wordpress"}
+    })
+  end
+
+  defp asset_descriptors(nil), do: []
+
+  defp asset_descriptors(media) do
+    [
+      %AssetDescriptor{
+        source_key: media["source_id"],
+        field_path: "fields.featured_image",
+        filename: media["filename"],
+        media_type: media["media_type"],
+        required: true,
+        retrieval: %{"kind" => "url", "url" => media["source_url"]},
+        metadata: Map.take(media, ["width", "height", "alt", "caption"])
+      }
+    ]
   end
 
   defp validate_selection(selection) do

@@ -341,6 +341,31 @@ defmodule CourierCMS.Repo.Migrations.CreateLocalInitialBaseline do
              name: :route_items_logical_identity_index
            )
 
+    create table(:delivery_assets, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :route_id, references(:routes, type: :binary_id, on_delete: :restrict), null: false
+      add :source_asset_key, :text, null: false
+      add :variant_key, :text, null: false, default: "original"
+      add :filename, :text
+      add :media_type, :text
+      add :byte_size, :bigint
+      add :source_checksum, :text
+      add :metadata, :map, null: false, default: %{}
+
+      add :state, :text,
+        null: false,
+        default: "pending",
+        check: %{name: "valid_delivery_asset_state", expr: "state IN ('pending', 'delivered', 'failed')"}
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:delivery_assets, [:route_id, :source_asset_key, :variant_key],
+             name: :delivery_assets_logical_identity_index
+           )
+
+    create index(:delivery_assets, [:route_id, :state])
+
     create table(:run_items, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :run_id, references(:runs, type: :binary_id, on_delete: :delete_all), null: false
@@ -376,6 +401,56 @@ defmodule CourierCMS.Repo.Migrations.CreateLocalInitialBaseline do
     create index(:run_items, [:run_id, :status])
     create index(:run_items, [:route_item_id])
 
+    create table(:run_assets, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :run_id, references(:runs, type: :binary_id, on_delete: :delete_all), null: false
+
+      add :delivery_asset_id,
+          references(:delivery_assets, type: :binary_id, on_delete: :restrict),
+          null: false
+
+      add :asset_key, :text, null: false
+      add :planned_operation, :text
+
+      add :status, :text,
+        null: false,
+        default: "pending",
+        check: %{
+          name: "valid_run_asset_status",
+          expr:
+            "status IN ('pending', 'processing', 'succeeded', 'retrying', 'failed', 'skipped', 'cancelled')"
+        }
+
+      add :attempt_count, :integer, null: false, default: 0
+      add :error_category, :text
+      add :error_summary, :text
+      add :content_hash, :text
+      add :started_at, :utc_datetime_usec
+      add :completed_at, :utc_datetime_usec
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:run_assets, [:run_id, :asset_key])
+    create index(:run_assets, [:run_id, :status])
+    create index(:run_assets, [:delivery_asset_id])
+
+    create table(:run_item_assets, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+
+      add :run_item_id, references(:run_items, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :run_asset_id, references(:run_assets, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :field_path, :text, null: false
+      add :required, :boolean, null: false, default: true
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:run_item_assets, [:run_item_id, :run_asset_id, :field_path])
+    create index(:run_item_assets, [:run_asset_id])
+
     create table(:delivery_bindings, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :route_item_id, references(:route_items, type: :binary_id, on_delete: :restrict),
@@ -405,6 +480,41 @@ defmodule CourierCMS.Repo.Migrations.CreateLocalInitialBaseline do
     create unique_index(:delivery_bindings, [:route_item_id, :destination_id])
     create index(:delivery_bindings, [:destination_id, :last_delivered_at])
     create index(:delivery_bindings, [:target_reference])
+
+    create table(:delivery_asset_bindings, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+
+      add :delivery_asset_id,
+          references(:delivery_assets, type: :binary_id, on_delete: :restrict),
+          null: false
+
+      add :destination_id, references(:destinations, type: :binary_id, on_delete: :restrict),
+        null: false
+
+      add :target_reference, :text
+      add :ownership_evidence, :map, null: false, default: %{}
+      add :last_content_hash, :text
+      add :last_delivered_at, :utc_datetime_usec
+
+      add :state, :text,
+        null: false,
+        default: "pending",
+        check: %{
+          name: "valid_delivery_asset_binding_state",
+          expr: "state IN ('pending', 'delivered', 'failed')"
+        }
+
+      add :last_successful_run_id, references(:runs, type: :binary_id, on_delete: :nilify_all)
+
+      add :last_route_revision_id,
+          references(:route_revisions, type: :binary_id, on_delete: :restrict)
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:delivery_asset_bindings, [:delivery_asset_id, :destination_id])
+    create index(:delivery_asset_bindings, [:destination_id, :last_delivered_at])
+    create index(:delivery_asset_bindings, [:target_reference])
 
     create table(:checkpoints, primary_key: false) do
       add :id, :binary_id, primary_key: true

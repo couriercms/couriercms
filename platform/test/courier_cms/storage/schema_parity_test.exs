@@ -6,8 +6,9 @@ defmodule CourierCMS.Storage.SchemaParityTest do
 
   @domain_tables ~w(
     audit_events checkpoints connection_leases connection_rate_buckets
-    connections connector_events delivery_bindings delivery_locks destinations
-    route_items route_revisions routes run_items runs users users_tokens
+    connections connector_events delivery_asset_bindings delivery_assets
+    delivery_bindings delivery_locks destinations route_items route_revisions
+    routes run_assets run_item_assets run_items runs users users_tokens
     worker_heartbeats workspace_memberships workspaces
   )
 
@@ -23,6 +24,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
       ~w(id workspace_id name adapter_key extension_id component_id endpoint settings credentials capabilities enabled last_test_status last_tested_at inserted_at updated_at),
     "connector_events" =>
       ~w(id connection_id contract_version external_event_id event_kind source_item_key source_modified_at status runs_started error_summary received_at processed_at inserted_at),
+    "delivery_asset_bindings" =>
+      ~w(id delivery_asset_id destination_id target_reference ownership_evidence last_content_hash last_delivered_at state last_successful_run_id last_route_revision_id inserted_at updated_at),
+    "delivery_assets" =>
+      ~w(id route_id source_asset_key variant_key filename media_type byte_size source_checksum metadata state inserted_at updated_at),
     "delivery_bindings" =>
       ~w(id route_item_id destination_id target_reference ownership_evidence last_content_hash last_delivered_at state last_successful_run_id last_route_revision_id inserted_at updated_at),
     "delivery_locks" => ~w(delivery_key owner_token expires_at inserted_at updated_at),
@@ -34,6 +39,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
       ~w(id route_id revision_number selection aggregation_rules mapping delivery_contract contract_version transformations trigger_settings checksum projections source_extension_id source_component_id target_extension_id target_component_id delivery_name_path inserted_at),
     "routes" =>
       ~w(id workspace_id name source_connection_id target_connection_id enabled archived_at inserted_at updated_at current_revision_id current_destination_id),
+    "run_assets" =>
+      ~w(id run_id delivery_asset_id asset_key planned_operation status attempt_count error_category error_summary content_hash started_at completed_at inserted_at updated_at),
+    "run_item_assets" =>
+      ~w(id run_item_id run_asset_id field_path required inserted_at updated_at),
     "run_items" =>
       ~w(id run_id route_item_id delivery_key source_item_key locale_key source_revision_key planned_operation status attempt_count error_category error_summary content_hash started_at completed_at source_modified_at source_change_token source_state inserted_at updated_at),
     "runs" =>
@@ -55,6 +64,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     connections_workspace_id_index connections_workspace_id_name_index
     connector_events_connection_id_external_event_id_index
     connector_events_status_received_at_index
+    delivery_asset_bindings_delivery_asset_id_destination_id_index
+    delivery_asset_bindings_destination_id_last_delivered_at_index
+    delivery_asset_bindings_target_reference_index
+    delivery_assets_logical_identity_index delivery_assets_route_id_state_index
     delivery_bindings_destination_id_last_delivered_at_index
     delivery_bindings_route_item_id_destination_id_index
     delivery_bindings_target_reference_index delivery_locks_expires_at_index
@@ -68,6 +81,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     routes_current_destination_id_index
     routes_current_revision_id_index routes_source_connection_id_index
     routes_target_connection_id_index routes_workspace_id_index routes_workspace_id_name_index
+    run_assets_delivery_asset_id_index run_assets_run_id_asset_key_index
+    run_assets_run_id_status_index
+    run_item_assets_run_asset_id_index
+    run_item_assets_run_item_id_run_asset_id_field_path_index
     run_items_route_item_id_index run_items_run_id_delivery_key_index run_items_run_id_status_index
     runs_destination_id_inserted_at_index runs_initiated_by_user_id_index
     runs_route_id_connector_event_id_index
@@ -80,9 +97,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
   @checks ~w(
     different_source_and_target_connections positive_contract_version positive_revision_number
     positive_slot_number supported_connector_contract_version valid_connector_event_status
+    valid_delivery_asset_binding_state valid_delivery_asset_state
     valid_delivery_binding_state valid_destination_lifecycle valid_destination_validation
     valid_membership_role valid_membership_status valid_route_item_state valid_run_item_status
-    valid_run_status valid_trigger_kind
+    valid_run_asset_status valid_run_status valid_trigger_kind
   )
 
   @foreign_keys [
@@ -112,10 +130,19 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     {"route_items", "route_id", "routes", "RESTRICT"},
     {"run_items", "run_id", "runs", "CASCADE"},
     {"run_items", "route_item_id", "route_items", "SET NULL"},
+    {"delivery_assets", "route_id", "routes", "RESTRICT"},
+    {"run_assets", "run_id", "runs", "CASCADE"},
+    {"run_assets", "delivery_asset_id", "delivery_assets", "RESTRICT"},
+    {"run_item_assets", "run_item_id", "run_items", "CASCADE"},
+    {"run_item_assets", "run_asset_id", "run_assets", "CASCADE"},
     {"delivery_bindings", "route_item_id", "route_items", "RESTRICT"},
     {"delivery_bindings", "destination_id", "destinations", "RESTRICT"},
     {"delivery_bindings", "last_successful_run_id", "runs", "SET NULL"},
     {"delivery_bindings", "last_route_revision_id", "route_revisions", "RESTRICT"},
+    {"delivery_asset_bindings", "delivery_asset_id", "delivery_assets", "RESTRICT"},
+    {"delivery_asset_bindings", "destination_id", "destinations", "RESTRICT"},
+    {"delivery_asset_bindings", "last_successful_run_id", "runs", "SET NULL"},
+    {"delivery_asset_bindings", "last_route_revision_id", "route_revisions", "RESTRICT"},
     {"checkpoints", "route_id", "routes", "CASCADE"},
     {"checkpoints", "source_connection_id", "connections", "RESTRICT"},
     {"checkpoints", "last_run_id", "runs", "SET NULL"},
@@ -129,6 +156,11 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     connections.credentials connections.last_test_status connections.last_tested_at
     connector_events.source_item_key connector_events.source_modified_at
     connector_events.error_summary connector_events.processed_at
+    delivery_asset_bindings.target_reference delivery_asset_bindings.last_content_hash
+    delivery_asset_bindings.last_delivered_at delivery_asset_bindings.last_successful_run_id
+    delivery_asset_bindings.last_route_revision_id
+    delivery_assets.filename delivery_assets.media_type delivery_assets.byte_size
+    delivery_assets.source_checksum
     delivery_bindings.target_reference delivery_bindings.last_content_hash
     delivery_bindings.last_delivered_at delivery_bindings.last_successful_run_id
     delivery_bindings.last_route_revision_id
@@ -139,6 +171,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     run_items.route_item_id run_items.planned_operation run_items.error_category
     run_items.error_summary run_items.content_hash run_items.started_at run_items.completed_at
     run_items.source_modified_at run_items.source_change_token
+    run_assets.planned_operation run_assets.error_category run_assets.error_summary
+    run_assets.content_hash run_assets.started_at run_assets.completed_at
     runs.initiated_by_user_id runs.connector_event_id runs.started_at runs.completed_at
     runs.cancelled_at runs.error_category runs.error_summary runs.schedule_key
     runs.planning_cursor runs.source_artifact runs.target_artifact
@@ -170,6 +204,9 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "destinations.ownership_evidence" => :empty_map,
     "connector_events.status" => "accepted",
     "connector_events.runs_started" => 0,
+    "delivery_assets.variant_key" => "original",
+    "delivery_assets.metadata" => :empty_map,
+    "delivery_assets.state" => "pending",
     "runs.trigger_metadata" => :empty_map,
     "runs.status" => "queued",
     "runs.items_discovered" => 0,
@@ -184,6 +221,11 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "run_items.status" => "pending",
     "run_items.attempt_count" => 0,
     "run_items.source_state" => "published",
+    "run_assets.status" => "pending",
+    "run_assets.attempt_count" => 0,
+    "run_item_assets.required" => true,
+    "delivery_asset_bindings.ownership_evidence" => :empty_map,
+    "delivery_asset_bindings.state" => "pending",
     "delivery_bindings.ownership_evidence" => :empty_map,
     "delivery_bindings.state" => "pending",
     "checkpoints.value" => :empty_map,
@@ -197,8 +239,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     workspace_id actor_user_id user_id invited_by_user_id blocked_by_user_id
     source_connection_id target_connection_id current_revision_id current_destination_id
     route_id owner_route_id connection_id run_id route_revision_id destination_id
-    initiated_by_user_id connector_event_id route_item_id last_successful_run_id
-    last_route_revision_id last_run_id owner_token
+    initiated_by_user_id connector_event_id route_item_id run_item_id delivery_asset_id run_asset_id
+    last_successful_run_id last_route_revision_id last_run_id owner_token
   )
 
   @integer_columns ~w(
@@ -414,8 +456,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
       column == "id" or column in @binary_id_columns -> :binary_id
       String.ends_with?(column, "_at") -> :datetime
       column in @integer_columns -> :integer
-      column == "bucket" -> :bigint
-      column in ["enabled", "planning_complete"] -> :boolean
+      column in ["bucket", "byte_size"] -> :bigint
+      column in ["enabled", "planning_complete", "required"] -> :boolean
       column in ["credentials", "token"] -> :binary
       column in @map_columns -> :map
       column in @list_map_columns -> :list_map

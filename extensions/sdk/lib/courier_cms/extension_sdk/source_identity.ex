@@ -50,6 +50,12 @@ defmodule CourierCMS.ExtensionSDK.SourceIdentity do
     |> Base.url_encode64(padding: false)
   end
 
+  @spec logical_key(t()) :: String.t()
+  def logical_key(%__MODULE__{} = identity) do
+    [identity.item_key, identity.locale_key]
+    |> Enum.join(<<0>>)
+  end
+
   defp require_string(errors, field, attrs) do
     case fetch(attrs, field) do
       value when is_binary(value) ->

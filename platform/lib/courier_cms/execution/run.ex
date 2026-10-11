@@ -51,6 +51,7 @@ defmodule CourierCMS.Execution.Run do
     belongs_to :initiated_by_user, CourierCMS.Accounts.User
     belongs_to :connector_event, CourierCMS.Connectors.ConnectorEvent
     has_many :items, RunItem
+    has_many :assets, CourierCMS.Assets.RunAsset
 
     timestamps()
   end

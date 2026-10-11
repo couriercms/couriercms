@@ -83,7 +83,7 @@ An independently selected source CMS item, document, entry, entity, or post. Eac
 
 A bounded instruction describing which source references, components, datasources, taxonomy values, authors, or assets should be included in the root item's payload.
 
-## Content Bundle (planned)
+## Content Bundle
 
 The bounded, normalized result assembled by a source Adapter for one root
 Content Item. It contains included source content and relationships, Delivery
@@ -118,14 +118,15 @@ or purpose-built API resource. Later source revisions update the same Delivery
 Item. It retains the complete Canonical Delivery Document and may also contain
 ownership, preview, Delivery Asset references, and Projection Fields.
 
-## Delivery Asset (planned)
+## Delivery Asset
 
 A durable media or file dependency delivered for one or more Delivery Items.
-It has its own deterministic identity, metadata, status, retry history, and
-target binding. Required Delivery Assets must succeed before a dependent
-Delivery Item can succeed. The current runtime handles supported assets within
-the parent Delivery Item attempt; independent asset jobs are not yet
-implemented.
+CourierCMS persists its deterministic identity, metadata, per-Run state, item
+dependencies, and Destination-scoped target binding. When both Adapters support
+the optional asset contract, required Delivery Assets execute and retry in
+independent jobs and must succeed before a dependent Delivery Item can succeed.
+Adapters that have not adopted the contract may retain documented in-item asset
+behavior.
 
 ## Destination
 

@@ -29,6 +29,7 @@ defmodule CourierCMS.Destinations.Destination do
     belongs_to :workspace, CourierCMS.Workspaces.Workspace
     belongs_to :target_connection, Connection
     belongs_to :owner_route, Route
+    has_many :delivery_asset_bindings, CourierCMS.Assets.DeliveryAssetBinding
 
     timestamps()
   end

@@ -1,7 +1,7 @@
 defmodule CourierCMS.Mapping do
   @moduledoc "Applies declarative source-path to payload-path mappings."
 
-  alias CourierCMS.ExtensionSDK.{AdapterError, ContentNode}
+  alias CourierCMS.ExtensionSDK.{AdapterError, ContentBundle}
 
   @path_pattern ~r/^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$/
 
@@ -35,7 +35,7 @@ defmodule CourierCMS.Mapping do
 
   def validate(_mapping), do: {:error, "Mapping must contain at least one field."}
 
-  def apply(%ContentNode{} = node, mapping) when is_map(mapping) do
+  def apply(%ContentBundle{root: node}, mapping) when is_map(mapping) do
     source = %{
       "fields" => node.fields,
       "metadata" => node.metadata,

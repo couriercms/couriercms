@@ -173,11 +173,12 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
     assert params["orderby"] == "modified"
   end
 
-  test "reads and aggregates a post into a vendor-neutral content node", %{
+  test "reads and assembles a post into a vendor-neutral Content Bundle", %{
     connection: connection
   } do
     {:ok, %{items: [identity]}} = Source.enumerate(connection, %{}, nil)
-    assert {:ok, node} = Source.read_root(connection, identity, %{})
+    assert {:ok, bundle} = Source.read_root(connection, identity, %{})
+    node = bundle.root
 
     assert node.source_type == "post"
     assert node.name == "Reliable content & delivery"
@@ -203,6 +204,12 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
              "alt" => "A content delivery pipeline",
              "caption" => "Delivery pipeline"
            }
+
+    assert [asset] = bundle.assets
+    assert asset.source_key == "501"
+    assert asset.field_path == "fields.featured_image"
+    assert asset.required
+    assert asset.retrieval["url"] == node.fields["featured_image"]["source_url"]
   end
 
   test "rejects unsupported source scope", %{connection: connection} do

@@ -7,6 +7,7 @@ defmodule CourierCMS.Local.ReliabilityGateTest do
   end
 
   alias CourierCMS.Connections.Connection
+  alias CourierCMS.Assets.RunAsset
   alias CourierCMS.Execution
   alias CourierCMS.Execution.{Checkpoint, RunItem}
   alias CourierCMS.LocalRecovery
@@ -96,7 +97,7 @@ defmodule CourierCMS.Local.ReliabilityGateTest do
 
     run.id
     |> run_items()
-    |> Enum.each(&assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+    |> Enum.each(&process_item/1)
 
     assert Execution.get_run!(scope, run.id).status == :succeeded
     assert :ok = Execution.process_run_item(stranded.id, 1, 3)
@@ -105,6 +106,21 @@ defmodule CourierCMS.Local.ReliabilityGateTest do
 
   defp run_items(run_id) do
     Repo.all(from(item in RunItem, where: item.run_id == ^run_id, order_by: item.id))
+  end
+
+  defp process_item(item) do
+    case Execution.process_run_item(item.id, 1, 3) do
+      :ok ->
+        :ok
+
+      {:snooze, _seconds} ->
+        RunAsset
+        |> where([asset], asset.run_id == ^item.run_id and asset.status == :pending)
+        |> Repo.all()
+        |> Enum.each(&assert(:ok = Execution.process_run_asset(&1.id, 1, 3)))
+
+        assert :ok = Execution.process_run_item(item.id, 1, 3)
+    end
   end
 
   defp route_fixture(scope) do

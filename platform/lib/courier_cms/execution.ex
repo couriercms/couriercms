@@ -5,7 +5,18 @@ defmodule CourierCMS.Execution do
 
   alias CourierCMS.Accounts
   alias CourierCMS.Accounts.Scope
-  alias CourierCMS.ExtensionSDK.{AdapterError, DeliveryEnvelope, SourceIdentity}
+  alias CourierCMS.Assets
+  alias CourierCMS.Assets.{DeliveryAsset, DeliveryAssetBinding, RunAsset, Transfer}
+
+  alias CourierCMS.ExtensionSDK.{
+    AdapterError,
+    AssetContent,
+    AssetDescriptor,
+    ContentBundle,
+    DeliveryEnvelope,
+    SourceIdentity
+  }
+
   alias CourierCMS.Extensions.Gateway
 
   alias CourierCMS.Execution.{
@@ -186,15 +197,16 @@ defmodule CourierCMS.Execution do
              Keyword.get(opts, :selection, route.current_revision.selection),
              nil
            ]),
-         {:ok, node} <-
+         {:ok, bundle} <-
            Gateway.source(source, :read_root, [
              route.source_connection,
              identity,
              route.current_revision.aggregation_rules
            ]),
+         :ok <- CourierCMS.Transport.ContentBundleValidator.validate(bundle),
          {:ok, payload} <-
-           Mapping.apply(node, Keyword.get(opts, :mapping, route.current_revision.mapping)) do
-      hash = content_hash(node.identity, route.current_revision.contract_version, payload)
+           Mapping.apply(bundle, Keyword.get(opts, :mapping, route.current_revision.mapping)) do
+      hash = content_hash(bundle.root.identity, route.current_revision.contract_version, payload)
 
       envelope = %DeliveryEnvelope{
         installation_id: Installation.id(),
@@ -203,8 +215,8 @@ defmodule CourierCMS.Execution do
         route_revision: route.current_revision.revision_number,
         delivery_key: "preview",
         source_connection_id: route.source_connection_id,
-        source_identity: node.identity,
-        source_type: node.source_type,
+        source_identity: bundle.root.identity,
+        source_type: bundle.root.source_type,
         contract_version: route.current_revision.contract_version,
         delivered_at: DateTime.utc_now(),
         content_hash: hash
@@ -216,7 +228,7 @@ defmodule CourierCMS.Execution do
         DeliveryName.resolve(
           canonical_document,
           route.current_revision.delivery_name_path,
-          node.identity.item_key,
+          bundle.root.identity.item_key,
           envelope.delivery_key
         )
 
@@ -508,6 +520,98 @@ defmodule CourierCMS.Execution do
     end
   end
 
+  def process_run_asset(run_asset_id, attempt, max_attempts) do
+    run_asset = load_run_asset!(run_asset_id)
+
+    if terminal_asset?(run_asset) do
+      :ok
+    else
+      with {:ok, _run} <- ensure_run_artifacts(run_asset.run),
+           run_asset <- load_run_asset!(run_asset_id),
+           {:ok, source, target} <- execution_references(run_asset.run) do
+        process_run_asset_with_lock(run_asset, source, target, attempt, max_attempts)
+      else
+        {:error, %AdapterError{} = error} ->
+          record_asset_error(run_asset, :failed, error)
+          {:discard, error.message}
+      end
+    end
+  end
+
+  defp process_run_asset_with_lock(run_asset, source, target, attempt, max_attempts) do
+    owner_token = Ecto.UUID.generate()
+    ttl_ms = Application.fetch_env!(:couriercms, :delivery_lock_ttl_ms)
+    lock_key = "asset:#{run_asset.run.destination_id}:#{run_asset.asset_key}"
+
+    case DeliveryLock.acquire(lock_key, owner_token, ttl_ms) do
+      :ok ->
+        try do
+          run_asset = load_run_asset!(run_asset.id)
+
+          ConnectionLimiter.with_leases(
+            [run_asset.run.route.source_connection, run_asset.run.route.target_connection],
+            owner_token,
+            ttl_ms,
+            fn -> do_process_run_asset(run_asset, source, target, attempt, max_attempts) end
+          )
+        after
+          DeliveryLock.release(lock_key, owner_token)
+        end
+
+      :busy ->
+        :telemetry.execute([:couriercms, :asset_delivery, :lock_contention], %{count: 1}, %{})
+        {:snooze, Retry.short_snooze()}
+    end
+  end
+
+  defp do_process_run_asset(run_asset, source, target, attempt, max_attempts) do
+    if terminal_asset?(run_asset) do
+      :ok
+    else
+      run_asset =
+        transition_run_asset(run_asset, %{
+          status: :processing,
+          attempt_count: attempt,
+          started_at: run_asset.started_at || DateTime.utc_now(),
+          error_category: nil,
+          error_summary: nil
+        })
+
+      started_at = System.monotonic_time()
+      result = deliver_asset(run_asset, source, target)
+      emit_asset_delivery_duration(run_asset, result, started_at)
+
+      case result do
+        {:ok, operation, content_hash} ->
+          complete_asset(run_asset, operation, content_hash, :succeeded)
+
+        {:skip, content_hash} ->
+          complete_asset(run_asset, "skip", content_hash, :skipped)
+
+        {:error, %AdapterError{retryable: true, retry_after_ms: retry_after_ms} = error}
+        when attempt < max_attempts and is_integer(retry_after_ms) ->
+          record_asset_error(run_asset, :retrying, error)
+          {:snooze, Retry.after_ms(retry_after_ms)}
+
+        {:error, %AdapterError{retryable: true} = error} when attempt < max_attempts ->
+          record_asset_error(run_asset, :retrying, error)
+          {:error, error.message}
+
+        {:error, %AdapterError{} = error} ->
+          record_asset_error(run_asset, :failed, error)
+          {:discard, error.message}
+      end
+    end
+  rescue
+    _exception ->
+      error = AdapterError.new(:internal, "Delivery Asset processing failed")
+      record_asset_error(run_asset, :failed, error)
+      {:discard, error.message}
+  end
+
+  defp terminal_asset?(run_asset),
+    do: run_asset.status in [:succeeded, :skipped, :failed, :cancelled]
+
   defp process_run_item_with_lock(run_item, source, target, attempt, max_attempts) do
     owner_token = Ecto.UUID.generate()
     ttl_ms = Application.fetch_env!(:couriercms, :delivery_lock_ttl_ms)
@@ -559,6 +663,11 @@ defmodule CourierCMS.Execution do
         {:skip, route_item, content_hash} ->
           complete_item(run_item, route_item, "skip", content_hash, :skipped)
 
+        {:waiting_for_assets, delay} ->
+          transition_run_item(run_item, %{status: :pending})
+          broadcast(run_item.run_id)
+          {:snooze, delay}
+
         {:error, %AdapterError{retryable: true, retry_after_ms: retry_after_ms} = error}
         when attempt < max_attempts and is_integer(retry_after_ms) ->
           record_item_error(run_item, :retrying, error)
@@ -585,6 +694,7 @@ defmodule CourierCMS.Execution do
       case result do
         {:ok, _operation, _route_item, _hash} -> :succeeded
         {:skip, _route_item, _hash} -> :skipped
+        {:waiting_for_assets, _delay} -> :waiting_for_assets
         {:error, %AdapterError{retryable: true}} -> :retrying
         {:error, %AdapterError{}} -> :failed
       end
@@ -639,6 +749,13 @@ defmodule CourierCMS.Execution do
           |> where(
             [item],
             item.run_id == ^run.id and item.status in [:pending, :retrying]
+          )
+          |> Repo.update_all(set: [status: :cancelled, completed_at: now, updated_at: now])
+
+          RunAsset
+          |> where(
+            [asset],
+            asset.run_id == ^run.id and asset.status in [:pending, :processing, :retrying]
           )
           |> Repo.update_all(set: [status: :cancelled, completed_at: now, updated_at: now])
 
@@ -736,15 +853,17 @@ defmodule CourierCMS.Execution do
     route = run.route
     revision = run.route_revision
 
-    with {:ok, node} <-
+    with {:ok, bundle} <-
            Gateway.source(source, :read_root, [
              route.source_connection,
              identity,
              revision.aggregation_rules
            ]),
-         {:ok, payload} <- Mapping.apply(node, revision.mapping) do
-      content_hash = content_hash(node.identity, revision.contract_version, payload)
-      envelope = envelope(run_item, node.source_type, node.identity, content_hash)
+         :ok <- CourierCMS.Transport.ContentBundleValidator.validate(bundle),
+         {:ok, bundle} <- prepare_bundle_assets(run_item, source, target, bundle),
+         {:ok, payload} <- Mapping.apply(bundle, revision.mapping) do
+      content_hash = content_hash(bundle.root.identity, revision.contract_version, payload)
+      envelope = envelope(run_item, bundle.root.source_type, bundle.root.identity, content_hash)
       canonical_document = CanonicalDeliveryDocument.build(envelope, payload)
 
       delivery_name =
@@ -758,7 +877,7 @@ defmodule CourierCMS.Execution do
       with :ok <- validate_delivery_size(canonical_document),
            {:ok, projections} <- Projection.project(canonical_document, revision.projections) do
         cond do
-          stale_delivery?(route_item, node.identity) ->
+          stale_delivery?(route_item, bundle.root.identity) ->
             {:skip, route_item, (binding && binding.last_content_hash) || content_hash}
 
           unchanged?(binding, content_hash) && !force_redelivery?(run) ->
@@ -785,6 +904,307 @@ defmodule CourierCMS.Execution do
         end
       end
     end
+  end
+
+  defp prepare_bundle_assets(_run_item, _source, _target, %ContentBundle{assets: []} = bundle),
+    do: {:ok, bundle}
+
+  defp prepare_bundle_assets(run_item, source, target, %ContentBundle{} = bundle) do
+    if asset_pipeline_supported?(source, target) do
+      with {:ok, _run_assets} <- Assets.plan_dependencies(run_item, bundle.assets) do
+        resolve_bundle_assets(run_item, bundle)
+      end
+    else
+      with {:ok, _run_assets} <-
+             Assets.plan_dependencies(run_item, bundle.assets, schedule_jobs: false) do
+        {:ok, bundle}
+      end
+    end
+  end
+
+  defp asset_pipeline_supported?(source, target) do
+    Gateway.source_supports?(source, :read_asset) and
+      Enum.all?([:find_asset, :create_asset, :update_asset], fn operation ->
+        Gateway.target_supports?(target, operation)
+      end)
+  end
+
+  defp resolve_bundle_assets(run_item, bundle) do
+    dependencies = Assets.dependencies(run_item.id)
+
+    cond do
+      Enum.any?(dependencies, &(&1.required and &1.run_asset.status == :failed)) ->
+        {:error,
+         AdapterError.new(:target_rejected, "A required Delivery Asset could not be delivered")}
+
+      Enum.any?(dependencies, &(&1.run_asset.status in [:pending, :processing, :retrying])) ->
+        {:waiting_for_assets, Retry.short_snooze()}
+
+      Enum.any?(dependencies, fn dependency ->
+        dependency.required and
+            not usable_asset_binding?(dependency.run_asset, run_item.run.destination_id)
+      end) ->
+        {:error,
+         AdapterError.new(
+           :internal,
+           "A required Delivery Asset has no verified target binding"
+         )}
+
+      true ->
+        {:ok,
+         inject_asset_references(
+           bundle,
+           dependencies,
+           run_item.run.destination_id,
+           run_item.run.route_id
+         )}
+    end
+  end
+
+  defp usable_asset_binding?(%{status: status, delivery_asset: asset}, destination_id)
+       when status in [:succeeded, :skipped] do
+    Enum.any?(asset.bindings, fn binding ->
+      binding.destination_id == destination_id and is_binary(binding.target_reference) and
+        binding.target_reference != "" and binding.state == :delivered
+    end)
+  end
+
+  defp usable_asset_binding?(_run_asset, _destination_id), do: false
+
+  defp inject_asset_references(bundle, dependencies, destination_id, route_id) do
+    by_key = Map.new(dependencies, &{&1.run_asset.asset_key, &1})
+
+    Enum.reduce(bundle.assets, bundle, fn descriptor, current_bundle ->
+      asset_key =
+        DeliveryAsset.key(route_id, descriptor.source_key, descriptor.variant_key)
+
+      case Map.get(by_key, asset_key) do
+        %{run_asset: %{status: status, delivery_asset: asset}}
+        when status in [:succeeded, :skipped] ->
+          case Enum.find(asset.bindings, &(&1.destination_id == destination_id)) do
+            %DeliveryAssetBinding{target_reference: target_reference} = binding
+            when is_binary(target_reference) ->
+              put_asset_reference(current_bundle, descriptor, asset_key, binding)
+
+            _missing ->
+              current_bundle
+          end
+
+        _other ->
+          current_bundle
+      end
+    end)
+  end
+
+  defp put_asset_reference(bundle, descriptor, asset_key, binding) do
+    path = descriptor.field_path || "$assets"
+
+    if String.starts_with?(path, "fields.") do
+      segments = path |> String.replace_prefix("fields.", "") |> String.split(".")
+
+      reference = %{
+        "couriercms_asset_key" => asset_key,
+        "target_reference" => binding.target_reference,
+        "source_key" => descriptor.source_key,
+        "variant_key" => descriptor.variant_key,
+        "filename" => descriptor.filename,
+        "media_type" => descriptor.media_type,
+        "checksum" => binding.last_content_hash,
+        "metadata" => descriptor.metadata
+      }
+
+      root = %{bundle.root | fields: put_asset_path(bundle.root.fields, segments, reference)}
+      %{bundle | root: root}
+    else
+      bundle
+    end
+  end
+
+  defp put_asset_path(fields, [key], reference) do
+    existing = Map.get(fields, key)
+    value = if is_map(existing), do: Map.merge(existing, reference), else: reference
+    Map.put(fields, key, value)
+  end
+
+  defp put_asset_path(fields, [key | rest], reference) do
+    nested = Map.get(fields, key)
+    nested = if is_map(nested), do: nested, else: %{}
+    Map.put(fields, key, put_asset_path(nested, rest, reference))
+  end
+
+  defp deliver_asset(run_asset, source, target) do
+    with {:ok, descriptor} <- asset_descriptor(run_asset, source),
+         {:ok, %AssetContent{} = content} <-
+           Gateway.source(source, :read_asset, [
+             run_asset.run.route.source_connection,
+             descriptor
+           ]) do
+      Transfer.with_materialized(content, descriptor, fn materialized ->
+        deliver_materialized_asset(run_asset, target, descriptor, materialized)
+      end)
+    end
+  end
+
+  defp asset_descriptor(run_asset, source) do
+    dependency =
+      run_asset.run_item_assets
+      |> Enum.sort_by(& &1.id)
+      |> List.first()
+
+    with %{run_item: run_item} <- dependency,
+         {:ok, identity} <- identity_from_item(run_item),
+         {:ok, bundle} <-
+           Gateway.source(source, :read_root, [
+             run_asset.run.route.source_connection,
+             identity,
+             run_asset.run.route_revision.aggregation_rules
+           ]),
+         :ok <- CourierCMS.Transport.ContentBundleValidator.validate(bundle),
+         %AssetDescriptor{} = descriptor <-
+           Enum.find(bundle.assets, fn descriptor ->
+             AssetDescriptor.identity(descriptor) ==
+               {run_asset.delivery_asset.source_asset_key, run_asset.delivery_asset.variant_key}
+           end) do
+      {:ok, descriptor}
+    else
+      nil ->
+        {:error,
+         AdapterError.new(:invalid_content, "Delivery Asset dependency is no longer available")}
+
+      _other ->
+        {:error,
+         AdapterError.new(:invalid_content, "Delivery Asset descriptor could not be resolved")}
+    end
+  end
+
+  defp deliver_materialized_asset(run_asset, target, descriptor, content) do
+    run = run_asset.run
+    connection = run.route.target_connection
+    destination = %{id: run.destination.id, scope: run.destination.scope}
+    binding = Assets.binding(run_asset.delivery_asset, run.destination_id)
+    ownership = asset_ownership(run_asset)
+
+    delivery = %{
+      asset_key: run_asset.asset_key,
+      descriptor: descriptor,
+      content: content,
+      destination: destination,
+      ownership: ownership
+    }
+
+    with {:ok, found} <-
+           Gateway.target(target, :find_asset, [connection, destination, run_asset.asset_key]),
+         {:ok, operation, result} <-
+           write_asset(target, connection, binding, found, delivery, content.checksum),
+         :ok <- verify_asset_result(result, ownership),
+         {:ok, _binding} <-
+           bind_asset(run_asset, result, content, descriptor) do
+      if operation == "skip",
+        do: {:skip, content.checksum},
+        else: {:ok, operation, content.checksum}
+    end
+  end
+
+  defp write_asset(_target, _connection, binding, found, _delivery, content_hash)
+       when not is_nil(binding) and binding.last_content_hash == content_hash and
+              found != :not_found do
+    cond do
+      binding.target_reference != found.target_reference ->
+        {:error,
+         AdapterError.new(
+           :ownership_violation,
+           "Target asset identity does not match the stored binding"
+         )}
+
+      true ->
+        {:ok, "skip", found}
+    end
+  end
+
+  defp write_asset(target, connection, _binding, :not_found, delivery, _content_hash) do
+    case Gateway.target(target, :create_asset, [connection, delivery]) do
+      {:ok, result} -> {:ok, "create", result}
+      error -> error
+    end
+  end
+
+  defp write_asset(target, connection, binding, found, delivery, _content_hash) do
+    if binding && binding.target_reference && binding.target_reference != found.target_reference do
+      {:error,
+       AdapterError.new(:ownership_violation, "Target asset identity conflicts with its binding")}
+    else
+      case Gateway.target(target, :update_asset, [
+             connection,
+             found.target_reference,
+             delivery,
+             found.ownership
+           ]) do
+        {:ok, result} -> {:ok, "update", result}
+        error -> error
+      end
+    end
+  end
+
+  defp asset_ownership(run_asset) do
+    %{
+      installation_id: Installation.id(),
+      route_id: run_asset.run.route_id,
+      destination_id: run_asset.run.destination_id,
+      couriercms_asset_key: run_asset.asset_key
+    }
+  end
+
+  defp verify_asset_result(result, expected) do
+    ownership = stringify_keys(result.ownership)
+
+    if ownership == stringify_keys(expected) and is_binary(result.target_reference) and
+         result.target_reference != "" do
+      :ok
+    else
+      {:error,
+       AdapterError.new(:ownership_violation, "Target returned conflicting asset ownership")}
+    end
+  end
+
+  defp stringify_keys(map) when is_map(map),
+    do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
+
+  defp stringify_keys(_value), do: %{}
+
+  defp bind_asset(run_asset, result, content, descriptor) do
+    Repo.transaction(fn ->
+      binding =
+        Assets.binding(run_asset.delivery_asset, run_asset.run.destination_id) ||
+          %DeliveryAssetBinding{}
+
+      binding =
+        binding
+        |> DeliveryAssetBinding.changeset(%{
+          delivery_asset_id: run_asset.delivery_asset_id,
+          destination_id: run_asset.run.destination_id,
+          target_reference: result.target_reference,
+          ownership_evidence: stringify_keys(result.ownership),
+          last_content_hash: content.checksum,
+          last_delivered_at: DateTime.utc_now(),
+          last_successful_run_id: run_asset.run_id,
+          last_route_revision_id: run_asset.run.route_revision_id,
+          state: :delivered
+        })
+        |> Repo.insert_or_update!()
+
+      run_asset.delivery_asset
+      |> DeliveryAsset.changeset(%{
+        filename: descriptor.filename,
+        media_type: descriptor.media_type,
+        byte_size: content.byte_size,
+        source_checksum: content.checksum,
+        metadata: descriptor.metadata,
+        state: :delivered
+      })
+      |> Repo.update!()
+
+      binding
+    end)
   end
 
   defp source_read_skippable?(source, run, route_item, binding, identity) do
@@ -1018,6 +1438,77 @@ defmodule CourierCMS.Execution do
 
     maybe_finalize_run(run_item.run_id)
     broadcast(run_item.run_id)
+  end
+
+  defp complete_asset(run_asset, operation, content_hash, status) do
+    transition_run_asset(run_asset, %{
+      planned_operation: operation,
+      status: status,
+      content_hash: content_hash,
+      completed_at: DateTime.utc_now(),
+      error_category: nil,
+      error_summary: nil
+    })
+
+    broadcast(run_asset.run_id)
+    :ok
+  end
+
+  defp record_asset_error(run_asset, status, error) do
+    transition_run_asset(run_asset, %{
+      status: status,
+      error_category: to_string(error.category),
+      error_summary: error.message,
+      completed_at: if(status == :failed, do: DateTime.utc_now(), else: nil)
+    })
+
+    if status == :failed do
+      run_asset.delivery_asset
+      |> DeliveryAsset.changeset(%{state: :failed})
+      |> Repo.update!()
+    end
+
+    broadcast(run_asset.run_id)
+  end
+
+  defp transition_run_asset(run_asset, attrs) do
+    Repo.transaction(fn ->
+      current =
+        RunAsset
+        |> where([asset], asset.id == ^run_asset.id)
+        |> Storage.lock_for_update()
+        |> Repo.one!()
+
+      current
+      |> RunAsset.changeset(attrs)
+      |> Repo.update!()
+    end)
+    |> case do
+      {:ok, updated} ->
+        updated
+        |> Map.put(:run, run_asset.run)
+        |> Map.put(:delivery_asset, run_asset.delivery_asset)
+        |> Map.put(:run_item_assets, run_asset.run_item_assets)
+
+      {:error, reason} ->
+        raise "Run Asset transition failed: #{inspect(reason)}"
+    end
+  end
+
+  defp emit_asset_delivery_duration(run_asset, result, started_at) do
+    status =
+      case result do
+        {:ok, _operation, _hash} -> :succeeded
+        {:skip, _hash} -> :skipped
+        {:error, %AdapterError{retryable: true}} -> :retrying
+        {:error, %AdapterError{}} -> :failed
+      end
+
+    :telemetry.execute(
+      [:couriercms, :asset_delivery, :duration],
+      %{duration: System.monotonic_time() - started_at},
+      %{adapter: run_asset.run.route.target_connection.adapter_key, status: status}
+    )
   end
 
   def reconcile_run(run_id) do
@@ -1808,6 +2299,16 @@ defmodule CourierCMS.Execution do
     |> Repo.get!(id)
     |> Repo.preload([
       :route_item,
+      run: [:route_revision, :destination, route: [:source_connection, :target_connection]]
+    ])
+  end
+
+  defp load_run_asset!(id) do
+    RunAsset
+    |> Repo.get!(id)
+    |> Repo.preload([
+      :delivery_asset,
+      run_item_assets: :run_item,
       run: [:route_revision, :destination, route: [:source_connection, :target_connection]]
     ])
   end

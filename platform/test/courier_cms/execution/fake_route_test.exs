@@ -6,11 +6,15 @@ defmodule CourierCMS.Execution.FakeRouteTest do
   alias CourierCMS.Connections.Connection
   alias CourierCMS.Connectors.ConnectorEvent
   alias CourierCMS.Destinations
+  alias CourierCMS.Assets
+  alias CourierCMS.Assets.{DeliveryAsset, DeliveryAssetBinding, RunAsset, RunItemAsset}
   alias CourierCMS.Execution
   alias CourierCMS.Execution.RunItem
+  alias CourierCMS.ExtensionSDK.AssetDescriptor
   alias CourierCMS.Ownership.DeliveryBinding
   alias CourierCMS.Ownership.RouteItem
   alias CourierCMS.Routes
+  alias CourierCMSExtension.Fake.Store
 
   test "delivers filtered items independently, retries a transient failure, and skips replay" do
     scope = CourierCMS.AccountsFixtures.user_scope_fixture()
@@ -30,15 +34,7 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     first_items = items(first_run.id)
     assert Enum.map(first_items, & &1.source_item_key) == ["101", "102"]
 
-    Enum.each(first_items, fn item ->
-      case Execution.process_run_item(item.id, 1, 3) do
-        :ok ->
-          :ok
-
-        {:error, "Simulated temporary target outage"} ->
-          assert :ok = Execution.process_run_item(item.id, 2, 3)
-      end
-    end)
+    Enum.each(first_items, &process_item_with_retry/1)
 
     completed = Execution.get_run!(scope, first_run.id)
     assert completed.status == :succeeded
@@ -46,11 +42,45 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     assert completed.items_succeeded == 2
     assert Repo.aggregate(RouteItem, :count) == 2
     assert Repo.aggregate(DeliveryBinding, :count) == 2
+    assert Repo.aggregate(DeliveryAsset, :count) == 1
+    assert Repo.aggregate(RunAsset, :count) == 1
+    assert Repo.aggregate(RunItemAsset, :count) == 1
+    assert Repo.aggregate(DeliveryAssetBinding, :count) == 1
+    assert Repo.one!(RunAsset).status == :succeeded
     assert Enum.all?(Repo.all(DeliveryBinding), &is_binary(&1.target_reference))
+
+    delivered_item = Enum.find(first_items, &(&1.source_item_key == "101"))
+
+    stored =
+      Store.fetch(
+        route.target_connection_id,
+        route.current_destination_id,
+        delivered_item.delivery_key
+      )
+
+    assert stored.payload["featured_image"]["target_reference"] =~ "fake-asset:"
+
+    asset_item =
+      first_items
+      |> Enum.find(&(&1.source_item_key == "101"))
+      |> Repo.preload(run: :route)
+
+    descriptor = %AssetDescriptor{
+      source_key: "501",
+      field_path: "fields.featured_image",
+      filename: "delivery-pipeline.jpg",
+      media_type: "image/jpeg"
+    }
+
+    assert {:ok, [_asset]} = Assets.plan_dependencies(asset_item, [descriptor])
+    assert {:ok, [_asset]} = Assets.plan_dependencies(asset_item, [descriptor])
+    assert Repo.aggregate(DeliveryAsset, :count) == 1
+    assert Repo.aggregate(RunAsset, :count) == 1
+    assert Repo.aggregate(RunItemAsset, :count) == 1
 
     {:ok, replay} = Execution.start_manual_run(scope, route.id)
     assert :ok = Execution.plan_run(replay.id)
-    Enum.each(items(replay.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+    Enum.each(items(replay.id), &process_item_with_retry/1)
 
     replayed = Execution.get_run!(scope, replay.id)
     assert replayed.status == :succeeded
@@ -60,7 +90,7 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     {:ok, forced} = Execution.start_manual_run(scope, route.id, force_redelivery: true)
     assert forced.trigger_metadata["delivery_mode"] == "force"
     assert :ok = Execution.plan_run(forced.id)
-    Enum.each(items(forced.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+    Enum.each(items(forced.id), &process_item_with_retry/1)
 
     redelivered = Execution.get_run!(scope, forced.id)
     assert redelivered.status == :succeeded
@@ -81,7 +111,7 @@ defmodule CourierCMS.Execution.FakeRouteTest do
 
     {:ok, changed_run} = Execution.start_manual_run(scope, route.id)
     assert :ok = Execution.plan_run(changed_run.id)
-    Enum.each(items(changed_run.id), &assert(:ok = Execution.process_run_item(&1.id, 1, 3)))
+    Enum.each(items(changed_run.id), &process_item_with_retry/1)
 
     changed_items = items(changed_run.id)
     changed = Enum.find(changed_items, &(&1.source_item_key == "101"))
@@ -334,6 +364,90 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     assert_email_sent(subject: "CourierCMS delivery failed", to: [{nil, scope.user.email}])
   end
 
+  test "a required Delivery Asset retries independently and blocks its Delivery Item" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    route.source_connection
+    |> Ecto.Changeset.change(settings: %{"fail_asset_for" => ["501"]})
+    |> Repo.update!()
+
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    item = Enum.find(items(run.id), &(&1.source_item_key == "101"))
+
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+    asset = Repo.get_by!(RunAsset, run_id: run.id)
+
+    assert {:error, "Fake asset read failed"} = Execution.process_run_asset(asset.id, 1, 2)
+    assert Repo.get!(RunAsset, asset.id).status == :retrying
+
+    assert {:discard, "Fake asset read failed"} = Execution.process_run_asset(asset.id, 2, 2)
+    assert Repo.get!(RunAsset, asset.id).status == :failed
+
+    assert {:discard, "A required Delivery Asset could not be delivered"} =
+             Execution.process_run_item(item.id, 2, 3)
+
+    assert Repo.get!(RunItem, item.id).status == :failed
+    assert Repo.aggregate(DeliveryAssetBinding, :count) == 0
+  end
+
+  test "a required Delivery Asset cannot be accepted without its verified binding" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    item = Enum.find(items(run.id), &(&1.source_item_key == "101"))
+
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+    asset = Repo.get_by!(RunAsset, run_id: run.id)
+    assert :ok = Execution.process_run_asset(asset.id, 1, 3)
+
+    Repo.get_by!(DeliveryAssetBinding,
+      delivery_asset_id: asset.delivery_asset_id,
+      destination_id: run.destination_id
+    )
+    |> Repo.delete!()
+
+    assert {:discard, "A required Delivery Asset has no verified target binding"} =
+             Execution.process_run_item(item.id, 2, 3)
+
+    assert Repo.get!(RunItem, item.id).status == :failed
+  end
+
+  test "asset discovery rolls back when its Oban job cannot be inserted" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    item =
+      run.id
+      |> items()
+      |> Enum.find(&(&1.source_item_key == "101"))
+      |> Repo.preload(run: :route)
+
+    descriptor = %AssetDescriptor{
+      source_key: "501",
+      field_path: "fields.featured_image",
+      filename: "delivery-pipeline.jpg",
+      media_type: "image/jpeg"
+    }
+
+    previous = Application.fetch_env!(:couriercms, :asset_delivery_max_attempts)
+    Application.put_env(:couriercms, :asset_delivery_max_attempts, 0)
+
+    try do
+      assert {:error, _reason} = Assets.plan_dependencies(item, [descriptor])
+      assert Repo.aggregate(DeliveryAsset, :count) == 0
+      assert Repo.aggregate(RunAsset, :count) == 0
+      assert Repo.aggregate(RunItemAsset, :count) == 0
+    after
+      Application.put_env(:couriercms, :asset_delivery_max_attempts, previous)
+    end
+  end
+
   defp items(run_id) do
     RunItem
     |> where([item], item.run_id == ^run_id)
@@ -342,10 +456,31 @@ defmodule CourierCMS.Execution.FakeRouteTest do
   end
 
   defp process_items_with_retry(run_id) do
-    Enum.each(items(run_id), fn item ->
-      case Execution.process_run_item(item.id, 1, 3) do
+    Enum.each(items(run_id), &process_item_with_retry/1)
+  end
+
+  defp process_item_with_retry(item, attempt \\ 1) do
+    case Execution.process_run_item(item.id, attempt, 3) do
+      :ok ->
+        :ok
+
+      {:snooze, _seconds} ->
+        process_assets(item.run_id)
+        process_item_with_retry(item, attempt)
+
+      {:error, _message} ->
+        process_item_with_retry(item, attempt + 1)
+    end
+  end
+
+  defp process_assets(run_id) do
+    RunAsset
+    |> where([asset], asset.run_id == ^run_id and asset.status in [:pending, :retrying])
+    |> Repo.all()
+    |> Enum.each(fn asset ->
+      case Execution.process_run_asset(asset.id, 1, 3) do
         :ok -> :ok
-        {:error, _message} -> assert :ok = Execution.process_run_item(item.id, 2, 3)
+        {:error, _message} -> assert :ok = Execution.process_run_asset(asset.id, 2, 3)
       end
     end)
   end

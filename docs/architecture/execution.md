@@ -146,9 +146,13 @@ native content generation, editorial workflow, publishing, indexing, and other
 post-delivery actions are outside CourierCMS. CourierCMS does not request or
 track a downstream acknowledgement.
 
-First-class Delivery Asset jobs are planned. In the current runtime, a
-supported asset operation occurs within the parent Run Item attempt, and its
-failure fails that Run Item visibly.
+When both Adapters advertise the optional asset callbacks, CourierCMS persists
+asset dependencies and jobs atomically, delivers and retries each asset
+independently, and holds the dependent item until every required asset has a
+usable target reference. A terminal required-asset failure fails the item
+visibly. Stranded asset jobs are reconciled using the same durable-state
+principle as item jobs. Adapters that have not adopted the callbacks retain
+their existing in-item asset behavior.
 
 ## Concurrency and ordering
 

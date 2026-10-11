@@ -1,7 +1,7 @@
 defmodule CourierCMSExtension.FakeTest do
   use ExUnit.Case, async: false
 
-  alias CourierCMS.ExtensionSDK.{DeliveryEnvelope, SourceIdentity}
+  alias CourierCMS.ExtensionSDK.{AssetDescriptor, DeliveryEnvelope, SourceIdentity}
   alias CourierCMSExtension.Fake.{Source, Target}
 
   test "declares development source and target components" do
@@ -46,6 +46,26 @@ defmodule CourierCMSExtension.FakeTest do
     refute first.target_reference == second.target_reference
   end
 
+  test "streams, creates, finds, and updates a deterministic asset" do
+    connection = %{id: "connection-#{System.unique_integer([:positive])}", settings: %{}}
+    descriptor = %AssetDescriptor{source_key: "media-1", media_type: "image/png"}
+
+    assert {:ok, content} = Source.read_asset(connection, descriptor)
+    assert IO.iodata_to_binary(Enum.to_list(content.chunks)) == "fake-asset:media-1:original"
+
+    asset = asset_delivery(descriptor, content)
+    assert {:ok, created} = Target.create_asset(connection, asset)
+    assert created.target_reference == "fake-asset:destination-1:asset-key-1"
+
+    assert {:ok, found} = Target.find_asset(connection, asset.destination, "asset-key-1")
+    assert found == created
+
+    assert {:ok, updated} =
+             Target.update_asset(connection, created.target_reference, asset, created.ownership)
+
+    assert updated == created
+  end
+
   defp delivery(hash, destination_id \\ "destination-1") do
     identity = %SourceIdentity{
       item_key: "101",
@@ -75,6 +95,21 @@ defmodule CourierCMSExtension.FakeTest do
       projections: %{},
       name: %{value: "Delivery", suffix: "abc12345"},
       destination: %{id: destination_id, scope: %{}}
+    }
+  end
+
+  defp asset_delivery(descriptor, content) do
+    %{
+      asset_key: "asset-key-1",
+      descriptor: descriptor,
+      content: content,
+      destination: %{id: "destination-1", scope: %{}},
+      ownership: %{
+        installation_id: "installation-1",
+        route_id: "route-1",
+        destination_id: "destination-1",
+        couriercms_asset_key: "asset-key-1"
+      }
     }
   end
 end

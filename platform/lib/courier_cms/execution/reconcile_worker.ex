@@ -9,7 +9,17 @@ defmodule CourierCMS.Execution.ReconcileWorker do
   import Ecto.Query
 
   alias CourierCMS.Connectors.{ConnectorEvent, ConnectorEventWorker}
-  alias CourierCMS.Execution.{DeliveryWorker, JobArgs, PlanRunWorker, Run, RunItem}
+  alias CourierCMS.Assets.RunAsset
+
+  alias CourierCMS.Execution.{
+    AssetWorker,
+    DeliveryWorker,
+    JobArgs,
+    PlanRunWorker,
+    Run,
+    RunItem
+  }
+
   alias CourierCMS.Repo
 
   @impl Oban.Worker
@@ -23,16 +33,56 @@ defmodule CourierCMS.Execution.ReconcileWorker do
         )
 
       connector_event_count = reconcile_connector_events(cutoff)
+      asset_count = reconcile_assets(cutoff)
       item_count = reconcile_items(cutoff)
       run_count = reconcile_planners(cutoff)
 
       :telemetry.execute(
         [:couriercms, :reconciliation, :requeued],
-        %{connector_events: connector_event_count, items: item_count, planners: run_count},
+        %{
+          connector_events: connector_event_count,
+          assets: asset_count,
+          items: item_count,
+          planners: run_count
+        },
         %{}
       )
 
       :ok
+    end
+  end
+
+  defp reconcile_assets(cutoff) do
+    RunAsset
+    |> where(
+      [asset],
+      asset.status in [:pending, :processing, :retrying] and asset.updated_at < ^cutoff
+    )
+    |> order_by([asset], asc: asset.updated_at)
+    |> limit(500)
+    |> Repo.all()
+    |> Enum.count(&requeue_asset_if_stranded/1)
+  end
+
+  defp requeue_asset_if_stranded(asset) do
+    if active_job?(AssetWorker, "run_asset_id", asset.id) do
+      false
+    else
+      result =
+        Ecto.Multi.new()
+        |> Ecto.Multi.update(
+          :asset,
+          RunAsset.changeset(asset, %{status: :pending, completed_at: nil})
+        )
+        |> Oban.insert(
+          :job,
+          AssetWorker.new(JobArgs.put(%{"run_asset_id" => asset.id}),
+            max_attempts: Application.fetch_env!(:couriercms, :asset_delivery_max_attempts)
+          )
+        )
+        |> Repo.transaction()
+
+      match?({:ok, _changes}, result)
     end
   end
 
