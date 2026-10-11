@@ -103,7 +103,10 @@ Before updating, the target Adapter must verify that target metadata agrees with
 the Delivery Binding for the current Destination. Missing or conflicting
 evidence is an `ownership_violation`; CourierCMS must not overwrite the item.
 
-CourierCMS may overwrite the canonical document, CourierCMS ownership fields, uploaded CourierCMS assets, preview fields, and configured Projection Fields on an owned Delivery Item. Customer-owned native content produced by a Target Consumer remains outside that write set.
+CourierCMS may overwrite the canonical document, CourierCMS ownership fields,
+CourierCMS-managed Delivery Asset references, preview fields, and configured
+Projection Fields on an owned Delivery Item. Any native content independently
+created in the target environment remains outside that write set.
 
 ## Create/update-only policy
 

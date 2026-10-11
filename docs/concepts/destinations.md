@@ -84,8 +84,8 @@ organizational parent, but Routes never write into one shared scope.
 
 Delivery Items form a flat set inside their Destination. CourierCMS does not
 reproduce the source tree. Source path and parent information may be retained in
-the Canonical Delivery Document so target-owned consumers can create any native
-hierarchy they require.
+the Canonical Delivery Document. CourierCMS does not create native target
+hierarchy from it.
 
 For example, a Sitecore project may organize receiving scopes as:
 
@@ -148,6 +148,19 @@ transformations may populate reproducible projections from the Canonical
 Delivery Document. Those projections remain conveniences; the canonical
 document is authoritative.
 
-Target-owned hooks, workflows, scripts, AI, or manual processes decide how a
-Delivery Item becomes native content, including template selection, hierarchy,
-native references, editorial workflow, and publishing.
+The target environment may independently run hooks, workflows, scripts, AI, or
+manual processes after delivery. CourierCMS does not trigger, monitor, or
+include those actions in delivery status.
+
+## Delivery Assets
+
+The accepted next architecture treats media and file dependencies as
+first-class Delivery Assets with their own identity, retries, and target
+bindings. Delivery Items remain flat. A target Adapter may store assets in a
+separate CMS media library, object store, or asset service associated with the
+Destination.
+
+Required Delivery Assets must be accepted before their dependent Delivery Item
+can succeed. CourierCMS never deletes target assets. Independent Delivery Asset
+persistence and jobs are planned; currently supported media is handled during
+the parent Delivery Item attempt.

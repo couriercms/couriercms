@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-09-24
 
+[ADR-0019](0019-local-and-server-release-profiles.md) preserves these
+reliability invariants for both profiles. The PostgreSQL coordination details
+below are the Server implementation; Local uses SQLite-specific transactions
+and leases within its required single-instance topology.
+
 ## Context
 
 CourierCMS promises reliable at-least-once delivery while allowing the web tier and

@@ -7,6 +7,12 @@ The transformation ownership boundary remains accepted. The out-of-process
 Extension runtime decision is superseded by
 [ADR-0015](0015-native-otp-extensions.md).
 
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) clarifies that
+target-native behavior is simply outside CourierCMS; **Target Consumer** is no
+longer a platform/domain term. It also records Processor execution as accepted
+but not yet implemented. The current runtime also does not yet apply the
+built-in Transformation configuration reserved by Route Revisions.
+
 ## Context
 
 CourierCMS needs enough transformation to produce useful portable delivery payloads. Customers may later require specialized operations such as OCR, document parsing, or image metadata extraction, potentially implemented in Rust or another language. Allowing arbitrary scripts or dynamically loading third-party BEAM code would weaken security, release compatibility, determinism, and operational isolation. Moving every conversion into CourierCMS would also make it responsible for target-native content modeling and workflow.

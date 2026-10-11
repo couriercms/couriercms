@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-24
 
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) retains the
+canonical-document and projection decisions but retires **Target Consumer** and
+downstream acknowledgement as CourierCMS domain concepts.
+
 ## Context
 
 Target CMSs increasingly provide hooks, functions, workflows, and AI-assisted processing. Making CourierCMS understand and maintain every customer's native target schema would expand it into a migration or automation platform and couple reliable transport to changing business models.

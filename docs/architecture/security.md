@@ -8,7 +8,7 @@
 - Encryption keys
 - CMS endpoint and topology information
 - Delivery history and error diagnostics
-- Processor inputs and temporary assets
+- Future Processor inputs and temporary Delivery Asset files
 
 ## Trust boundaries
 
@@ -153,7 +153,11 @@ artifact.
 
 An update requires both a CourierCMS Route Item binding and matching target ownership metadata. Failure is terminal and visible. No force-overwrite option exists in normal execution.
 
-## Extensions, processors, and temporary files
+## Extensions, planned Processors, and temporary files
+
+The Processor-specific controls below become mandatory when Processor
+execution is implemented. Existing Adapter work already follows the applicable
+temporary-file and secret-minimization rules.
 
 - Use per-execution temporary directories.
 - Enforce file count, size, duration, and output limits.

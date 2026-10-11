@@ -4,6 +4,11 @@
 - Date: 2026-10-10
 - Supersedes: ADR-0017
 
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) retires the
+**Target Consumer** terminology below. Implementation stores each target
+reference and ownership evidence in a Destination-scoped Delivery Binding,
+rather than directly on the Route Item ledger.
+
 ## Context
 
 ADR-0017 represented a Destination as a stable key on a Route plus immutable

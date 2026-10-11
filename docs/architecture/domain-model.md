@@ -5,8 +5,6 @@
 ```text
 Workspace -- Membership -- User
     |
-    +-- Extension/component definition
-    |
     +-- Connection (source or target usage)
             |
             +-- Destination -- exclusive Route assignment
@@ -24,7 +22,11 @@ Workspace -- Membership -- User
                     +-- Checkpoint
 ```
 
-## Initial persisted entities
+## Current persisted entities
+
+Extension packages and component definitions are installation-level filesystem
+and node-local registry state. Workspace records refer to their stable IDs but
+do not own Extension records.
 
 ### users, workspaces, and workspace_memberships
 
@@ -99,7 +101,7 @@ Route link remains as history.
 - delivery contract and version
 - target Projection Field definitions
 - Delivery Item naming field and other immutable delivery presentation settings
-- transformation/processor configuration
+- transformation configuration reserved for the future execution pipeline
 - trigger execution settings
 - checksum
 - created timestamp and actor
@@ -118,10 +120,8 @@ A revision becomes immutable when referenced by a Run.
 - started/completed timestamps
 - discovered, succeeded, failed, retrying, and skipped counts
 - cancellation metadata
-- checkpoint before/after
 - source and target Extension/component IDs, versions, package checksums, and
   SDK contract versions and runtimes actually used
-- ordered Processor artifact evidence (empty until a Route uses Processors)
 
 Trigger metadata must be sanitized and must not contain credentials or complete payloads.
 
@@ -156,7 +156,6 @@ Large payloads are not stored in Oban arguments. Payload retention, if introduce
 - locale key
 - source revision key
 - last authoritative source change token, when supported
-- last Route Revision used for delivery
 - latest authoritative source state
 - current logical delivery state
 
@@ -199,7 +198,7 @@ creates or updates the bindings for the new Destination.
 - last Full Scan time
 - associated Run
 
-### inbound_events
+### connector_events
 
 - `id`
 - source Connection
@@ -213,12 +212,31 @@ creates or updates the bindings for the new Destination.
 
 Raw event payload retention should be short and opt-in.
 
+## Planned Delivery Asset entities
+
+First-class Delivery Asset persistence is not part of the current baseline.
+Its implementation will add durable concepts equivalent to, but separate from,
+Delivery Items:
+
+- a Delivery Asset identity and latest observed source metadata;
+- a relationship recording which Delivery Items require or optionally refer to
+  the Asset and where its target reference belongs in the canonical payload;
+- a Destination-scoped Delivery Asset Binding containing the opaque target
+  reference, ownership evidence, and last delivered checksum; and
+- per-Run asset work and attempts so failures, retries, reconciliation, and
+  operator reporting do not disappear inside a parent item job.
+
+Exact table names and indexes will be fixed with the implementation migration.
+The required invariants are defined by
+[ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
+
 ## Value objects
 
 - `SourceIdentity`: item key, locale key, revision key, state, optional authoritative change token
 - `Selection`: types, scopes, predicates, locales, state policy
 - `AdapterError`: category, retryability, safe message, details
-- `AssetDescriptor`: source identity, media type, filename, checksum, retrieval handle
+- `AssetDescriptor`: planned Delivery Asset source identity, media type,
+  filename, checksum, and retrieval handle
 - `DeliveryEnvelope`: CourierCMS and source provenance metadata
 - `DeliveryPayload`: validated value conforming to a Delivery Contract
 - `CanonicalDeliveryDocument`: complete authoritative envelope and payload JSON
@@ -251,7 +269,11 @@ pending -> processing -> succeeded
 ## Non-entities
 
 - A source folder is selection scope, not a single Delivery Item.
-- Referenced authors, taxonomies, and components are graph nodes and usually become nested payload data, not independent Delivery Items.
+- Referenced authors, taxonomies, and components are assembled by the source
+  Adapter and usually become nested payload data, not independent Delivery
+  Items.
+- Delivery Assets are planned durable entities and jobs; the current runtime
+  handles supported media within its parent Run Item attempt.
 - Oban jobs are execution machinery, not the source of record for Runs.
 - Source folders and paths are canonical metadata, not target Destination
   hierarchy. Delivery Items are flat within a Destination.

@@ -14,14 +14,15 @@ Organizations often operate more than one CMS permanently. Moving selected conte
 
 ```text
 Select source content
-        -> aggregate relevant source data
-        -> map and transform it
-        -> reliably create or update target Delivery Items
+        -> assemble relevant source content
+        -> map it into the delivery contract
+        -> reliably create or update target Delivery Items and Assets
         -> expose history, errors, retries, and alerts
 ```
 
-CourierCMS's responsibility ends when the target system accepts a Delivery Item
-into the configured Destination. Every Delivery Item includes the complete
+CourierCMS's responsibility ends when the target Adapter confirms acceptance
+of a Delivery Item and its required Delivery Assets into the configured
+Destination. Every Delivery Item includes the complete
 Canonical Delivery Document as JSON. Optional target-native Projection Fields
 expose selected canonical values for easier target-side querying and
 integration; they do not replace the canonical document.
@@ -63,20 +64,21 @@ CourierCMS owns:
 
 - Source connectivity and selection
 - Source save/publish/manual/periodic triggers
-- Bounded aggregation of referenced source content
+- CMS-specific, bounded assembly of referenced source content
 - Mapping to a versioned delivery contract
 - Building and validating the complete Canonical Delivery Document
-- Target-independent content transformations and bounded processors used during transport
+- Planned target-independent Transformations and Extension Processors
+- Reliable Delivery Asset handling as it becomes available
 - Deterministically deriving configured Projection Fields from that document
 - Reliable create/update delivery
 - Idempotency, retries, checkpoints, monitoring, and alerts
 - The CourierCMS Destination and ownership metadata
 
-The target environment owns:
+The target environment may independently perform:
 
-- Parsing delivered payloads
+- Parsing or otherwise using delivered payloads
 - Transforming deliveries into its native schema and business model
-- Creating or updating its native editorial content
+- Creating or updating native editorial content
 - Editorial review and approval
 - Publishing and unpublishing
 - Indexing, site builds, and downstream hooks
@@ -107,7 +109,8 @@ Two Routes in opposite directions are independent and dangerous. The UI should w
 6. **Target autonomy.** Target workflows remain outside CourierCMS.
 7. **Deterministic execution.** Approved mappings run predictably; enrichment records its configuration and version.
 8. **Self-hosted by default.** Credentials and content remain inside the customer's deployment boundary, apart from calls to configured CMS platforms.
-9. **Extensible deliberately.** Adapters, transformations, processors, and optional CMS Connectors have focused contracts.
+9. **Extensible deliberately.** Adapters, transformations, planned Processors,
+   and optional CMS Connectors have focused contracts.
 10. **Operational clarity.** Every delivery has an understandable status and history.
 11. **Canonical first.** The complete JSON delivery is always retained; target-native projections are disposable, reproducible conveniences.
 12. **Human-readable delivery.** Delivery Item names remain recognizable to
@@ -130,7 +133,7 @@ automation valid CourierCMS endpoints.
 
 - Configure and test a WordPress source Connection and Sanity target Connection.
 - Define a filtered Blog Post Route.
-- Preview matching source items.
+- Preview a representative delivery from the current source selection.
 - Manually and periodically execute the Route.
 - Configure incremental periodic polling with full fallback and scheduled Full Scan reconciliation.
 - Run a Full Scan and explicitly Force Full Redelivery without creating duplicate target identities.
@@ -145,3 +148,12 @@ automation valid CourierCMS endpoints.
 
 These capabilities define the current working foundation; they are not a 1.0
 release or compatibility promise.
+
+## Accepted next architecture
+
+The current implementation assembles referenced content inside each source
+Adapter and handles supported media during the parent Delivery Item attempt.
+The accepted next architecture introduces a generic bounded Content Bundle,
+Extension Processor execution, and durable first-class Delivery Assets. These
+are planned capabilities, not claims about the current runtime. See
+[ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).

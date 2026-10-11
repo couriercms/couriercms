@@ -18,7 +18,7 @@ couriercms/
   connectors/
     wordpress/              plugin installed inside WordPress
   examples/
-    sanity-consumer/        optional target-owned Sanity example
+    sanity-consumer/        optional target-side Sanity integration example
   docs/
   scripts/
 ```

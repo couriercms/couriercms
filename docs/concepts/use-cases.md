@@ -103,11 +103,17 @@ CourierCMS does not certify regulatory compliance; it makes delivery observable 
 
 ### Channel-specific content delivery
 
-Selected content can be delivered into CMSs dedicated to mobile applications, kiosks, portals, documentation, support, or other channels. Target consumers adapt the canonical content to channel-native models.
+Selected content can be delivered into CMSs dedicated to mobile applications,
+kiosks, portals, documentation, support, or other channels. The target
+environment may independently adapt delivered canonical content to a
+channel-native model.
 
 ### Content Hub, PIM, and DAM-style distribution
 
-Structured product or content-hub records can be materialized in consuming CMSs. Assets may remain remote references or be uploaded by the target Adapter, depending on the Route contract and Adapter capability.
+Structured product or content-hub records can be delivered into consuming CMSs.
+Supported assets may currently remain remote references or be handled by the
+target Adapter during the parent item attempt. First-class Delivery Assets are
+planned for independent delivery, retries, and target bindings.
 
 CourierCMS is most valuable for structured content that must exist locally in the consuming CMS rather than being fetched at request time.
 
@@ -214,7 +220,10 @@ This is content seeding, not complete environment cloning. CourierCMS does not r
 
 ### Normalized CMS change feed
 
-Publish events or incremental polling cause CourierCMS to read authoritative source content and create or update stable Delivery Items. A target consumer can treat those changes as a normalized CMS-aware feed without understanding the source API.
+Publish events or incremental polling cause CourierCMS to read authoritative
+source content and create or update stable Delivery Items. Target-owned code may
+read those items as a normalized CMS-aware feed without understanding the
+source API, but that code is not part of CourierCMS execution.
 
 CourierCMS guarantees observable at-least-once delivery, not an ordered global event stream or general-purpose message bus.
 
@@ -236,6 +245,6 @@ These use cases do not justify separate Search, AI, Migration, Backup, or Commer
 - idempotent create-or-update delivery;
 - item-level retries and replay;
 - clear history, monitoring, and alerts; and
-- simple target-consumer integration.
+- a simple, versioned document for optional target-side integration.
 
 The durable product value is decoupling content producers from content consumers while making delivery reliable and understandable.

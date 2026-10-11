@@ -29,7 +29,7 @@ Later source revisions patch that same document. The Adapter:
 3. Verifies `installationId`, `routeId`, `destinationId`, and `couriercmsKey`
    before an update.
 4. Patches only the CourierCMS destination fields.
-5. Returns the Sanity `_id` for the Route Item ledger.
+5. Returns the Sanity `_id` for the Delivery Binding.
 
 The complete Canonical Delivery Document is stored as JSON text in a dedicated
 field. Selected system fields remain independently queryable for identity,
@@ -39,7 +39,7 @@ source of truth and includes both the CourierCMS envelope and mapped payload.
 The Intake Schema may also declare optional typed Projection Fields such as a
 title, slug, publication date, or classification. CourierCMS derives each configured
 projection from a canonical document path and writes it with the canonical JSON.
-These fields exist for GROQ queries, previews, hooks, and target-owned consumers;
+These fields exist for GROQ queries, previews, hooks, and optional target-side integrations;
 they are not native editorial content and must not contain independent values.
 
 Sanity schemas are code-managed. Adding or changing Projection Fields therefore
@@ -48,7 +48,7 @@ validation. A delivery Run never changes the Sanity schema.
 
 CourierCMS never deletes a Sanity document.
 
-## Assets
+## Current asset behavior
 
 When the mapped payload includes a public HTTPS featured-image URL, Sanity's
 from-URL Assets API fetches it and CourierCMS stores the resulting asset reference
@@ -58,10 +58,17 @@ V0 does not fetch assets that require WordPress cookies or authorization
 headers. A failed asset upload fails that Delivery Item visibly and may retry if
 Sanity reports a transient failure.
 
+This operation currently occurs inside the parent Delivery Item attempt. The
+planned first-class Delivery Asset pipeline will give assets their own durable
+identity, retries, and target bindings without changing the target Adapter's
+responsibility to return a usable Sanity asset reference.
+
 ## Studio package
 
-The standalone package in `examples/sanity-consumer` defines the read-only Intake
-Schema and Studio structure. Schema deployment is explicit and separate from
+The standalone package in `examples/sanity-consumer` (a historical directory
+name) defines the read-only Intake Schema and Studio structure. It is a
+target-side integration example, not a CourierCMS runtime component. Schema
+deployment is explicit and separate from
 delivery; Runs never mutate target schema. The implementation stores the
 complete envelope-plus-payload document in `deliveryJson`. It does not write a
 payload-only compatibility field. Updates explicitly unset the former

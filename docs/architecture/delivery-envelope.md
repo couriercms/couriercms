@@ -23,9 +23,9 @@ optional `change_token` is not revision history or identity: an Adapter may
 supply it only when it declares that the token covers the root and every bounded
 dependency included in the aggregated Delivery Item.
 
-## Source content node
+## Current normalized source content
 
-A source Adapter returns normalized nodes used to assemble a Content Graph:
+A source Adapter currently returns normalized content from `read_root/3`:
 
 ```text
 identity
@@ -33,15 +33,17 @@ source type
 name/path, when available
 fields containing scalar, list, object, or rich-content values
 references with relationship names and target source identities
-assets as descriptors, never inline unbounded binaries
+asset descriptors, never inline unbounded binaries
 source metadata required for mapping or diagnostics
 ```
 
 Adapter-specific metadata is namespaced and must not be required by unrelated adapters.
 
-## Content Graph
+## Content Bundle (planned)
 
-The graph contains one root and only dependencies allowed by Aggregation Rules. Execution enforces:
+The planned Content Bundle makes the root, included content and relationships,
+and Delivery Asset descriptors explicit. CMS-specific discovery remains inside
+the source Adapter. The platform will validate generic bounds and invariants:
 
 - Maximum traversal depth
 - Maximum nodes per root
@@ -51,7 +53,9 @@ The graph contains one root and only dependencies allowed by Aggregation Rules. 
 - Shared-node deduplication
 - Missing dependency policy
 
-Graph nodes normally become nested payload values, not separate Delivery Items.
+Included content normally becomes nested payload values, not separate Delivery
+Items. The current SDK does not expose a generic dependency traversal API;
+implemented source Adapters assemble their normalized result in `read_root/3`.
 
 ## Canonical Delivery Document
 
@@ -100,7 +104,7 @@ for the target, and appends a deterministic short suffix derived from
 
 The name helps operators browse and compare source and target content. It is not
 used for target lookup, duplicate prevention, or ownership verification. The
-Adapter-returned target reference is stored separately in the Route Item ledger.
+Adapter-returned target reference is stored separately in the Delivery Binding.
 
 ## Payload values
 
@@ -115,11 +119,22 @@ Delivery Contracts may contain:
 
 Payload field names describe content meaning rather than presentation.
 
-## Assets
+## Delivery Assets (planned)
 
-An asset descriptor includes source identity, filename, media type, size when known, checksum when known, alt/caption metadata, and a bounded retrieval mechanism. Binary data is streamed or written to controlled temporary storage; it is not put in PostgreSQL JSON or Oban arguments.
+An asset descriptor includes source identity, filename, media type, size when
+known, checksum when known, alt/caption metadata, and a bounded retrieval
+mechanism. Binary data is streamed or written to controlled temporary storage;
+it is not put in database JSON or Oban arguments.
 
-The target Adapter can upload assets and replace source descriptors with target asset references inside the payload. Asset ownership uses the same Route namespace principles.
+A first-class Delivery Asset will have independent durable status, retry
+history, and a target binding. Required Delivery Assets are delivered before
+their dependent Delivery Item, and their target references are included in the
+Canonical Delivery Document. Asset ownership uses the same Route namespace
+principles, and CourierCMS never deletes target assets.
+
+This independent pipeline is not yet implemented. The current
+WordPress-to-Sanity path resolves its supported featured image during the
+parent Delivery Item attempt.
 
 ## Validation and hashing
 

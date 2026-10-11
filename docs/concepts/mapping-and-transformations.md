@@ -1,23 +1,41 @@
 # Mapping, Aggregation, and Transformations
 
+## Implementation status
+
+Declarative mapping and Projection Fields are implemented. Route Revisions
+persist transformation configuration, but the current execution pipeline does
+not yet apply built-in Transformations or invoke Extension Processors. The
+Transformation and Processor sections below describe the accepted boundary for
+that planned implementation.
+
 ## Mapping target
 
-Mappings transform a normalized source Content Graph into a versioned, target-independent Delivery Contract. They do not map directly into the target CMS's native editorial schema.
+Mappings transform normalized source content into a versioned,
+target-independent Delivery Contract. They do not map directly into the target
+CMS's native editorial schema.
 
 ```text
-Source Content Graph -> Route mapping -> Delivery Payload vN
-                     -> Canonical Delivery Document -> Target Destination
+Source Adapter -> normalized content -> Route mapping -> Delivery Payload vN
+               -> Canonical Delivery Document -> Target Destination
 ```
 
 ## Aggregation
 
-The root item is selected independently. Aggregation Rules describe bounded dependency traversal by relationship/field, source type, path/scope, and maximum depth.
+The root item is selected independently. Aggregation Rules describe which
+related source content should be included and the bounds that apply. The source
+Adapter, not a generic platform crawler, interprets those rules using its CMS's
+reference, component, datasource, taxonomy, locale, and media semantics.
+
+Today, each implemented source Adapter returns its assembled normalized root
+through `read_root/3`. A planned Content Bundle contract will make the root,
+included relationships, Delivery Asset descriptors, and generic safety bounds
+explicit without moving CMS-specific traversal into the platform.
 
 For each relationship a Route can:
 
 - Embed mapped dependency data in the root payload
 - Flatten selected dependency fields into a parent object
-- Include an asset descriptor for target upload
+- Include a Delivery Asset descriptor
 - Preserve a source reference identifier as data
 - Ignore the relationship
 
@@ -50,9 +68,12 @@ Projection Fields follow these rules:
 - Missing fields, incompatible target types, and unsupported projection capabilities fail preflight or the affected Run Item visibly.
 - Changing projections never causes runtime target-schema mutation. An operator must provision or deploy the Intake Schema change explicitly before activating the Route Revision.
 
-Projections are intended for efficient target queries, previews, hooks, and integrations when repeatedly parsing JSON would be inconvenient. They are not mappings into the target's native editorial model; a Target Consumer owns that step.
+Projections are intended for efficient target queries, previews, hooks, and
+integrations when repeatedly parsing JSON would be inconvenient. They are not
+mappings into the target's native editorial model. Any native target modeling
+or post-delivery behavior is independently owned by the target environment.
 
-## Transformations
+## Transformations (planned execution)
 
 Transformations make source content portable enough to enter the Canonical Delivery Document. They do not convert it into the target customer's native editorial or business model.
 
@@ -68,14 +89,21 @@ allowlisted, deterministic, versioned operations such as:
 
 Transformation configuration is stored in a Route Revision. Errors identify the transformation and safe field path without logging the value.
 
-A transformation belongs in CourierCMS when its output remains meaningful regardless of the target CMS. Converting HTML into a customer's Sanity Portable Text blocks, selecting a native target content type, applying editorial policy, rewriting copy, translating content, or generating embeddings belongs in a Target Consumer by default.
+A transformation belongs in CourierCMS when its output remains meaningful
+regardless of the target CMS. Converting HTML into a customer's Sanity Portable
+Text blocks, selecting a native target content type, applying editorial policy,
+rewriting copy, translating content, or generating embeddings is outside the
+CourierCMS delivery boundary by default.
 
 Route configuration never contains transformation source code or scripts.
 Common small operations should first be implemented and tested in the core;
-specialized target-independent work may use a declared native Extension
-Processor loaded through the normal startup package lifecycle.
+specialized target-independent work may eventually use a declared native
+Extension Processor loaded through the normal startup package lifecycle.
 
-## Processors
+## Processors (planned)
+
+The architecture below is accepted, but Processor packages are not yet
+accepted or executed by the current platform runtime.
 
 Processors handle heavier deterministic work such as OCR, image metadata extraction, PDF parsing, or archive extraction. Processor execution records:
 
@@ -99,7 +127,15 @@ versioned in the Route Revision. They cannot access CourierCMS's database throug
 the SDK, execute arbitrary workflow steps, call target Adapters, or receive
 unrelated credentials.
 
-AI enrichment is not part of V0 and remains target-owned by default. Introducing AI into the CourierCMS delivery path would require a new ADR that addresses non-determinism, provider/model and prompt versions, input/output retention, approval policy, replay, privacy, cost, and failure semantics.
+One Extension package may declare Adapters and Processors when they share an
+owner, dependencies, and release lifecycle. A reusable Processor may be an
+independent Extension. The platform invokes Processors through the Extension
+Gateway; an Adapter never calls a Processor directly.
+
+AI enrichment is outside the current CourierCMS delivery boundary. Introducing
+AI into that path would require a new ADR that addresses non-determinism,
+provider/model and prompt versions, input/output retention, approval policy,
+replay, privacy, cost, and failure semantics.
 
 ## Ownership decision
 
@@ -110,7 +146,7 @@ Makes source content portable and target-independent?
     -> CourierCMS mapping, built-in Transformation, or native Extension Processor
 
 Makes content native to the target's schema, workflow, or business policy?
-    -> Target Consumer
+    -> Outside CourierCMS; the target environment may handle it independently
 ```
 
 ## Contract evolution
@@ -119,7 +155,9 @@ Changing a mapping creates a new Route Revision and Delivery Contract version. I
 
 The target Delivery Item uses a stable system envelope and replaceable payload. Updating a source item with a later revision replaces the Canonical Delivery Document as a whole or its target-equivalent atomic field so removed mapping fields do not remain stale. Projection Fields are regenerated from that same document during the write.
 
-Breaking contract changes require preview and an explicit Route activation. Target consumers inspect `contractVersion` and decide how to handle each version.
+Breaking contract changes require preview and an explicit Route activation.
+Any target-owned code that reads delivered documents is responsible for the
+declared `contractVersion`.
 
 ## Preview
 
@@ -133,3 +171,12 @@ Before activation, users should be able to select representative source items an
 - Estimated asset work
 
 Preview must redact configured sensitive fields and must not write to the target unless explicitly running a delivery test.
+
+## Delivery Assets (planned)
+
+A Delivery Asset is a durable media or file dependency with independent
+identity, metadata, retry state, and target binding. Required Delivery Assets
+will be delivered before their dependent Delivery Item; a required asset
+failure prevents the item from succeeding. The current runtime handles
+supported assets inside the parent item attempt rather than through independent
+asset records and jobs.

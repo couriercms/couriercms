@@ -1,10 +1,10 @@
-# Sanity consumer example
+# Sanity target-side integration example
 
-This optional, target-owned example installs the read-only `couriercmsDelivery`
+This optional example installs the read-only `couriercmsDelivery`
 intake schema used by the official Sanity target extension. It demonstrates the
-boundary where a Sanity project can observe CourierCMS deliveries and implement
-its own hooks, functions, AI, or custom code to create native editorial content.
-Those downstream actions are not part of CourierCMS delivery success.
+boundary after CourierCMS delivery. A Sanity project may independently observe
+the delivered documents or add its own hooks and functions. CourierCMS does not
+trigger, monitor, or include those actions in delivery status.
 
 Every intake document retains the complete Canonical Delivery Document in
 `deliveryJson`. Projection fields are derived conveniences and are not a second
@@ -27,8 +27,8 @@ Sanity Connection in CourierCMS. Do not commit the token. Deploy the intake
 schema before activating Routes that use projections, then use **Force full
 redelivery** to populate new projection fields.
 
-If you add a Sanity Function or webhook that turns intake documents into native
-content, give native documents ordinary Sanity-generated IDs and store the
-CourierCMS delivery key in an explicit field for lookup and idempotency. Guard
-event handlers against recursion and keep their success/failure independent of
-CourierCMS delivery acceptance.
+If you independently add a Sanity Function or webhook that uses intake
+documents, give any resulting native documents ordinary Sanity-generated IDs
+and store the CourierCMS delivery key in an explicit field for lookup and
+idempotency. Guard event handlers against recursion. Their success or failure
+is not reported to CourierCMS.

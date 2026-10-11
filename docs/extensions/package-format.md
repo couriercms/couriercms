@@ -143,9 +143,9 @@ Runs additionally capture:
 - SDK contract version; and
 - execution runtime.
 
-The same evidence shape is used for bundled migration components, whose
-checksum is derived from their loaded BEAM code. Runs store source and target
-evidence plus an ordered Processor-evidence list.
+Runs currently store source and target Adapter evidence. When Processor
+execution is implemented, Runs will also store ordered Processor artifact
+evidence using the same identity principles.
 
 These fields make execution and recovery explainable even after an
 administrator changes the installed package.

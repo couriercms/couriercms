@@ -35,8 +35,8 @@ Each manifest component exposes a bounded SDK behaviour:
 
 - an Adapter declares its configuration definition and source and/or target
   capabilities;
-- a Processor declares its input/output contract, configuration, limits, and
-  deterministic execution metadata.
+- the planned Processor contract declares its input/output contract,
+  configuration, limits, and deterministic execution metadata.
 
 Definitions are declarative data rendered by generic CourierCMS screens. An
 Extension cannot inject HTML, LiveViews, routes, JavaScript, arbitrary Oban
@@ -46,6 +46,12 @@ Adapter callbacks use normalized SDK values and errors. They do not receive
 Ecto repositories or schemas, invoke another Adapter, advance checkpoints, or
 decide Run state. Processor callbacks receive only their bounded input and
 declared configuration.
+
+Processor authoring is not yet supported for installable packages. Although
+the SDK reserves a Processor behaviour and component kind, the current package
+loader rejects Processor components and the platform has no Processor
+execution pipeline. Do not publish a package claiming Processor support until
+that runtime capability and its conformance tests are released.
 
 ## Target Destination contract
 

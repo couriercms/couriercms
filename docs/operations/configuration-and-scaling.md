@@ -184,7 +184,7 @@ At minimum emit metrics for:
 - Rate-limit responses
 - Webhook accepted/rejected/deduplicated counts
 - Checkpoint lag
-- Processor duration and failures
+- Processor duration and failures, once Processor execution is implemented
 
 Metric labels use low-cardinality Adapter/operation/status values, not item IDs, URLs, content, or credentials.
 

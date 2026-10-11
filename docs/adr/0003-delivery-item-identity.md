@@ -3,6 +3,10 @@
 - Status: Superseded by ADR-0010
 - Date: 2026-09-24
 
+The historical **Target consumer** wording below is also retired by
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md). It does not
+identify a CourierCMS component.
+
 ## Context
 
 CMSs represent languages and versions differently. The target must be free to retain, consume, or discard each delivered variant without CourierCMS imposing native target modeling.

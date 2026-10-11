@@ -15,8 +15,9 @@ sets. A compatible target may be a CMS or a content-delivery store that provides
 the same ownership and idempotent create-or-update guarantees.
 
 CourierCMS creates or updates deterministic, CourierCMS-owned Delivery Items.
-It never deletes target content. Target-side hooks, workflows, AI, or custom
-code decide how a delivery becomes native editorial content.
+It never deletes target content. After confirmed delivery, the target
+environment may independently run hooks, workflows, AI, or custom code;
+CourierCMS does not trigger or monitor that work.
 
 CourierCMS supports migration as a use case, but it is not a complete migration
 suite, bidirectional synchronization system, workflow engine, or general-purpose
@@ -24,10 +25,10 @@ automation platform.
 
 ## Repository
 
-- `platform/` — Phoenix, LiveView, Ecto, PostgreSQL, Oban, execution, and operator UI
+- `platform/` — Phoenix, LiveView, Ecto, SQLite/PostgreSQL, Oban, execution, and operator UI
 - `extensions/` — host-installed SDK and source/target Adapter projects
 - `connectors/` — optional software installed inside external content systems
-- `examples/` — optional target-owned consumers and hooks
+- `examples/` — optional target-side integration examples
 - `docs/` — concepts, architecture, development, operations, and ADRs
 
 ## Choose Local or Server

@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-24
 
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) clarifies this
+decision: optional target-side behavior is outside CourierCMS and **Target
+Consumer** is no longer a platform/domain term.
+
 ## Context
 
 Target CMSs have incompatible schema and folder capabilities. Updating target editorial schemas whenever a Route mapping changes is unsafe and would make CourierCMS responsible for target content modeling.

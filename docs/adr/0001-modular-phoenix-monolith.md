@@ -7,6 +7,10 @@ Extension runtime details in this ADR are superseded by
 [ADR-0015](0015-native-otp-extensions.md). The modular-monolith decision remains
 accepted.
 
+[ADR-0019](0019-local-and-server-release-profiles.md) amends the PostgreSQL-only
+wording: Server uses PostgreSQL, while Local compiles the same application
+against SQLite with database-specific reliability infrastructure.
+
 ## Context
 
 CourierCMS needs durable jobs, concurrency, fault isolation, real-time progress, a web UI, and an extensible CMS integration layer. The first release must remain easy to self-host and operate.

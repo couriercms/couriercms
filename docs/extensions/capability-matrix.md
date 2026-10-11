@@ -19,7 +19,8 @@ Legend: `Planned`, `Implemented`, `Unsupported`, `Unknown`.
 | Publish event | Implemented Connector | Future webhook | Future Connector | Future Connector | Future webhook |
 | Locales | Connection default; plugins deferred | Future | Future | Future | Future |
 | Revisions | Implemented using published `modified_gmt` | Future | Future | Future | Future |
-| Assets | Implemented descriptor; byte streaming pending | Implemented public URL upload | Future | Future | Future |
+| Asset handling inside Delivery Item attempt | Implemented featured-image descriptor | Implemented public URL upload | Future | Future | Future |
+| First-class Delivery Asset pipeline | Planned | Planned | Planned | Planned | Planned |
 | Destination provisioning | N/A as V0 target | Implemented schema package; explicit deployment | Future | Future | Future |
 | Ownership verification | N/A as V0 target | Implemented | Future | Future | Future |
 

@@ -90,9 +90,10 @@ Owns configured Adapter instances, endpoints, non-secret settings, encrypted cre
 
 ### Routes
 
-Owns Routes, immutable Route Revisions, source selections, aggregation rules,
-mappings, payload contracts, Delivery Item naming configuration, and trigger
-policy.
+Owns Routes, immutable Route Revisions, source selections, aggregation
+configuration, payload contracts, Delivery Item naming configuration, and
+trigger policy. Generic Content Bundle mapping and Extension Processor
+execution are accepted next-stage capabilities, not current runtime features.
 
 Mutable Route identity is limited to operator-facing name and active state.
 Changing selection, aggregation, mapping, projections, transformations, or
@@ -102,10 +103,13 @@ establish a new Full Scan baseline before later incremental discovery.
 
 ### Transport
 
-Owns content graph assembly, asset descriptors, Canonical Delivery Documents,
-Projection definitions, and validation independent of a particular CMS. Public
-boundary values such as normalized source identity, content nodes, delivery
-envelopes, and Adapter errors live in the standalone Extension SDK.
+Owns Canonical Delivery Documents, Projection definitions, and validation
+independent of a particular CMS. Source Adapters currently assemble normalized
+root content in `read_root/3`. The planned Content Bundle and Delivery Asset
+contracts will expose portable assembly results and asset work without moving
+CMS-specific traversal into the platform. Public boundary values such as
+normalized source identity, content nodes, delivery envelopes, and Adapter
+errors live in the standalone Extension SDK.
 
 ### Execution
 
@@ -130,18 +134,17 @@ OTP application startup, the node-local Component Registry, and gateway
 resolution. Installed code lives on the local filesystem; configured component
 identities and execution artifact evidence live in PostgreSQL.
 
-The supervised Component Registry loads both startup-validated `.couriercms`
-packages and bundled Adapter modules retained as a migration bridge. Contexts,
-workers, and LiveViews dispatch only through the Gateway, so extracting a
-bundled Adapter into a package does not change those callers. Durable records
-use stable Extension/component IDs; the legacy `adapter_key` remains only a
-backward-compatible UI/configuration alias.
+The supervised Component Registry loads startup-validated `.couriercms`
+packages. Contexts, workers, and LiveViews dispatch only through the Gateway.
+Durable records use stable Extension/component IDs.
 
 ### Transformations
 
-Owns built-in allowlisted transformations and the native Processor component
-contract, including versioned configuration, resource limits, and result
-metadata. Target-native business transformations remain outside CourierCMS.
+Will own built-in allowlisted transformations and native Processor execution,
+including versioned configuration, resource limits, and result metadata.
+Processor vocabulary exists in the SDK, but Processor packages and execution
+are not supported by the current runtime. Target-native business
+transformations remain outside CourierCMS.
 
 ### Ownership
 
@@ -211,23 +214,28 @@ CourierCMS -> native Extension Adapter -> installed CMS Connector -> CMS interna
 Remote Adapter workers and an external protocol are not part of the accepted
 Extension architecture. Segmented-network support requires a separate decision.
 
-## Data flow
+## Current data flow
 
 1. A Trigger requests execution of a Route Revision.
 2. The source Adapter enumerates matching root identities or reads the event-specific identity.
 3. Execution durably records discovered work.
-4. The source Adapter reads the root and allowed dependencies.
-5. CourierCMS assembles a bounded Content Graph.
-6. Mapping and transformations produce a validated Delivery Contract payload.
-7. CourierCMS combines the stable envelope and complete payload into the Canonical Delivery Document.
-8. Configured Projection Fields are derived from that same document and validated; they never become a second source of truth.
-9. Assets are uploaded or resolved according to the target Adapter.
-10. CourierCMS derives a recognizable, collision-safe flat Delivery Item name
+4. The source Adapter reads and assembles the normalized root content.
+5. CourierCMS validates the returned content and builds the Delivery Contract payload.
+6. CourierCMS combines the stable envelope and complete payload into the Canonical Delivery Document.
+7. Configured Projection Fields are derived from that same document and validated; they never become a second source of truth.
+8. The target Adapter performs any currently supported asset operation within
+   the parent item attempt.
+9. CourierCMS derives a recognizable, collision-safe flat Delivery Item name
     from the Route Revision's naming field and immutable Delivery Item key.
-11. The target Adapter resolves or creates the Delivery Item and writes the canonical document plus any projections atomically where the CMS permits.
-12. Ownership is verified before an existing item is updated.
-13. CourierCMS records the Route Item binding and Run Item result.
-14. Progress is published to the UI and terminal failures can raise alerts.
+10. The target Adapter resolves or creates the Delivery Item and writes the canonical document plus any projections atomically where the CMS permits.
+11. Ownership is verified before an existing item is updated.
+12. CourierCMS records the Delivery Binding and Run Item result.
+13. Progress is published to the UI and terminal failures can raise alerts.
+
+The accepted next execution stage introduces a bounded Content Bundle,
+platform-invoked target-independent Processors, and durable Delivery Asset jobs.
+Required Assets will complete before the dependent Delivery Item. See
+[ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
 
 ## Extension boundaries
 
@@ -235,13 +243,15 @@ Extension architecture. Segmented-network support requires a separate decision.
 - **Adapter:** one CMS's API and semantics
 - **CMS Connector:** optional installed CMS companion
 - **Transformation:** small field conversion
-- **Processor:** bounded heavy content operation
+- **Processor:** planned bounded, target-independent content operation
 
-Adapters and specialized Processors are components in trusted, precompiled OTP
-Extensions loaded when the CourierCMS node starts. One version of an Extension ID
-is installed at a time. Installation and upgrade use a controlled restart, not
-hot reload. The Extension Gateway resolves stable identifiers through a
-node-local ETS registry and calls the validated module directly.
+Adapters are components in trusted, precompiled OTP Extensions loaded when the
+CourierCMS node starts. The accepted architecture also permits Processor
+components, but the current loader rejects them until execution support is
+implemented. One version of an Extension ID is installed at a time.
+Installation and upgrade use a controlled restart, not hot reload. The
+Extension Gateway resolves stable identifiers through a node-local ETS registry
+and calls the validated module directly.
 
 CMS Connectors remain separately installed CMS-native components. Extensions
 provide declarative definitions rather than injecting LiveView, JavaScript,
@@ -263,6 +273,8 @@ See [Extension architecture](extensions.md) and
 - No target deletion operation in the core target behaviour.
 - No assumption that target CMSs support folders.
 - No source hierarchy is recreated inside a Destination; Delivery Items are flat.
+- No target-side post-delivery action or acknowledgement is part of CourierCMS
+  execution state.
 - No assumption that all CMSs expose locales, revisions, or publish events identically.
 - No target Adapter may omit the complete Canonical Delivery Document because Projection Fields exist.
 - No delivery Run may mutate target schema; Intake Schema provisioning and validation are explicit operations.

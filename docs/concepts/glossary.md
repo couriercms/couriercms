@@ -23,22 +23,24 @@ calls another Adapter. Native Adapters are supplied by an Extension.
 ## Extension
 
 A trusted, administrator-installed, precompiled OTP application loaded into the
-CourierCMS VM at startup. It contributes Adapter and/or Processor components through
-the versioned Extension SDK. One version of an Extension ID is installed at a
-time; installation and upgrade require a restart.
+CourierCMS VM at startup. It currently contributes Adapter components through
+the versioned Extension SDK. Processor components are planned. One version of
+an Extension ID is installed at a time; installation and upgrade require a
+restart.
 
 ## Component Registry
 
 A rebuildable, node-local ETS lookup mapping stable Extension and component IDs
 to validated modules, capabilities, versions, and package checksums. It is not
-shared storage; PostgreSQL remains the durable source of configuration and
-execution history.
+shared storage; the configured SQLite or PostgreSQL database remains the
+durable source of configuration and execution history.
 
 ## Extension Gateway
 
 The core boundary that resolves a stable component identifier through the
 Component Registry, validates execution artifact compatibility, and invokes the
-approved Adapter or Processor callback.
+approved Adapter callback. Processor dispatch will use the same boundary when
+that runtime capability is implemented.
 
 ## CMS Connector
 
@@ -81,9 +83,12 @@ An independently selected source CMS item, document, entry, entity, or post. Eac
 
 A bounded instruction describing which source references, components, datasources, taxonomy values, authors, or assets should be included in the root item's payload.
 
-## Content Graph
+## Content Bundle (planned)
 
-The root Content Item plus the source content reachable through allowed Aggregation Rules. It exists during planning and assembly; CourierCMS does not necessarily deliver graph nodes as separate target items.
+The bounded, normalized result assembled by a source Adapter for one root
+Content Item. It contains included source content and relationships, Delivery
+Asset descriptors, and required source metadata. Included content normally
+becomes nested data in one Delivery Item rather than separate target items.
 
 ## Delivery Contract
 
@@ -105,17 +110,22 @@ The stable, adapter-provided target CMS model used for CourierCMS Delivery Items
 
 An optional target-native field deterministically derived from a path in the Canonical Delivery Document. Projection Fields make common target queries, hooks, and workflows easier, but contain no authoritative data that is absent from the canonical document.
 
-## Target Consumer
-
-Customer-owned code, hook, workflow, or AI in the target environment that reacts to a Delivery Item and may create or update native target content. It is outside CourierCMS's delivery success boundary.
-
 ## Delivery Item
 
 One target resource created or updated by CourierCMS for one root Content Item
 and locale. It may be represented as a CMS item, document, record, object, file,
 or purpose-built API resource. Later source revisions update the same Delivery
 Item. It retains the complete Canonical Delivery Document and may also contain
-ownership, preview, asset, and Projection Fields.
+ownership, preview, Delivery Asset references, and Projection Fields.
+
+## Delivery Asset (planned)
+
+A durable media or file dependency delivered for one or more Delivery Items.
+It has its own deterministic identity, metadata, status, retry history, and
+target binding. Required Delivery Assets must succeed before a dependent
+Delivery Item can succeed. The current runtime handles supported assets within
+the parent Delivery Item attempt; independent asset jobs are not yet
+implemented.
 
 ## Destination
 
@@ -130,7 +140,7 @@ released or reassigned.
 
 The target-native identifier returned for a Delivery Item, such as a CMS item
 ID, document ID, object key, file path, or API resource ID. CourierCMS stores it
-in the Route Item ledger; it is not a human naming policy or ownership proof by
+in the Delivery Binding; it is not a human naming policy or ownership proof by
 itself.
 
 ## Route Item
@@ -171,25 +181,25 @@ A Run that enumerates the complete current Route selection. Previously delivered
 
 An explicit operator Run that enumerates the complete current Route selection and writes every matching Delivery Item again, including unchanged items. It retains stable Delivery Item identities, verifies ownership, and uses create-or-update semantics; it never deletes target content.
 
-## Transformation
+## Transformation (planned runtime behavior)
 
 A named, allowlisted, deterministic conversion that makes source content
-portable while remaining independent of the target's native editorial model. A
-Transformation may invoke a core operation or a declared Processor component;
-its identifier and configuration are immutable Route Revision data.
+portable while remaining independent of the target's native editorial model.
+Route Revisions currently reserve transformation configuration, but execution
+is not implemented. A future Transformation may invoke a core operation or a
+declared Processor component; its identifier and configuration will be
+immutable Route Revision data.
 
-## Processor
+## Processor (planned runtime capability)
 
 A bounded content operation such as OCR, image metadata extraction, or document
 parsing. A Processor may be supplied by a trusted native Extension. It exposes a
-declared input/output contract and cannot inject arbitrary Route workflow steps.
-
-## Target acknowledgement
-
-An optional future signal that the target's downstream consumer processed a Delivery Item. It is separate from CourierCMS's delivery success and is not required in V0.
+declared input/output contract and cannot inject arbitrary Route workflow
+steps. The SDK vocabulary reserves this component kind, but the current
+package loader and execution pipeline do not yet run Processor components.
 
 ## Delivery success
 
-Confirmation that the target system accepted the Delivery Item into the
-Destination. It does not mean the target published, materialized, or otherwise
-consumed the content.
+Confirmation that the target Adapter accepted the Delivery Item and all of its
+required Delivery Assets into the Destination. It does not mean the target
+published, materialized, or otherwise processed the content afterward.

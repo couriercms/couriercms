@@ -149,4 +149,4 @@ unsupported plugin data as complete.
    `incremental`, and a modified post is the only discovered item.
 
 Redirects and final cutover are not CourierCMS V0 responsibilities. The payload keeps
-the canonical WordPress URL so a target-owned consumer can make those decisions.
+the canonical WordPress URL so optional target-side code can make those decisions.

@@ -30,6 +30,7 @@ ADRs record durable decisions and their consequences. They are immutable history
 - [ADR-0017: Route-owned Destination settings](0017-route-owned-destination-settings.md) — superseded
 - [ADR-0018: Managed Destinations and flat Delivery Items](0018-managed-destinations-and-flat-delivery-items.md)
 - [ADR-0019: Local and Server release profiles](0019-local-and-server-release-profiles.md)
+- [ADR-0020: Delivery boundary, Content Bundles, and Delivery Assets](0020-delivery-boundary-content-bundles-and-assets.md)
 
 ## Template
 

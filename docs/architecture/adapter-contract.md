@@ -80,23 +80,17 @@ Definitions are declarative data, not executable UI injection. Supported field
 types are intentionally bounded. Secrets are identified by storage class and
 remain encrypted by the Connections context.
 
-## Source behaviour
+## Implemented source behaviour
 
-Conceptual operations:
+Current callbacks:
 
+- `component/0`
 - `definition/0`
 - `test_connection/1`
 - `capabilities/1`
-- `list_content_types/2`
-- `describe_content_type/3`
-- `validate_selection/2`
-- `preview_selection/3`
 - `enumerate/3`
 - `changes_since/4` (Connection, selection, opaque checkpoint/window, page cursor)
 - `read_root/3`
-- `read_dependency/4`
-- `open_asset/3`
-- `normalize_event/3`
 
 Enumeration returns pages of normalized identities and an opaque continuation/checkpoint value. It does not return unbounded collections.
 
@@ -104,26 +98,30 @@ An identity may carry an authoritative change token only under the capability
 contract above. CourierCMS otherwise calls `read_root/3` and compares the canonical
 payload hash.
 
-## Target behaviour
+The planned Content Bundle and Delivery Asset work may add explicit dependency
+and asset-streaming callbacks. Those callbacks are not part of the current SDK
+contract. CMS-specific assembly currently occurs inside `read_root/3`.
 
-Conceptual operations:
+## Implemented target behaviour
 
+Current callbacks:
+
+- `component/0`
 - `definition/0`
 - `test_connection/1`
 - `capabilities/1`
+- `idempotency_strategy/0`
 - `validate_destination/2`
-- `plan_destination/2`
-- `provision_destination/2`
 - `validate_projections/2`
 - `find_delivery/3`
-- `create_delivery/4`
-- `update_delivery/5`
-- `verify_ownership/4`
-- `upload_asset/4`
+- `create_delivery/2`
+- `update_delivery/4`
 
 There is intentionally no `delete` callback in V0.
 
-Provisioning is explicit and separate from a delivery Run. A target Adapter must never silently mutate target schema during delivery.
+Any future provisioning capability must be explicit and separate from a
+delivery Run. A target Adapter must never silently mutate target schema during
+delivery.
 
 Destination settings are declarative, bounded, and Adapter-defined. They are
 stored on a separately managed Destination belonging to the target Connection,
@@ -149,8 +147,8 @@ but the new Destination must receive a distinct target item while the old item
 and Delivery Binding remain untouched.
 
 Delivery Items are flat within a Destination. A target Adapter must not infer or
-recreate source hierarchy during delivery. Native hierarchy belongs to a
-target-owned consumer.
+recreate source hierarchy during delivery. Native target hierarchy is outside
+CourierCMS delivery.
 
 Every target Adapter must preserve the complete Canonical Delivery Document in each Delivery Item, either as a native arbitrary-value field when the CMS safely supports it or as canonical UTF-8 JSON text. Target-specific ownership, lookup, preview, asset, and Projection Fields may duplicate selected values. They are derivatives and must not replace the canonical document.
 
@@ -212,10 +210,18 @@ Every Adapter must pass shared tests covering applicable capabilities:
 - Ownership verification
 - Complete canonical document retention and projection consistency
 - Ambiguous timeout recovery
-- Asset streaming and limits
+- Current asset-operation limits where applicable
 - Secret-safe errors and logging
 
 Live integration tests are opt-in and use disposable test projects/sites.
+
+## Planned Delivery Asset callbacks
+
+First-class Delivery Assets will require bounded source streaming and target
+asset create-or-update operations with deterministic identity, ownership, and
+ambiguous-write recovery. Their final callbacks will be added to a future SDK
+contract after the persistence and execution model is implemented. The current
+SDK does not expose `open_asset` or `upload_asset` callbacks.
 
 ## Versioning
 

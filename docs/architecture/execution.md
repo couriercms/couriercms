@@ -29,9 +29,10 @@ If an item no longer matches the selection, CourierCMS records or reports it as 
 1. Create a Run bound to one immutable Route Revision.
 2. Ask the source Adapter to enumerate normalized root identities.
 3. Persist one bounded source page, its Run Items, and its Oban delivery jobs in
-   one PostgreSQL transaction.
+   one database transaction.
 4. Repeat from the durable cursor without retaining the full result set in memory.
-5. Aggregate dependencies, map, transform, validate, and deliver each item independently.
+5. Assemble dependencies, map, apply available transformations, validate, and
+   deliver each item independently.
 6. Reconcile counts and finish the Run after all terminal item states are known.
 
 Source pages, Run item counts, and canonical document bytes have deployment
@@ -48,7 +49,10 @@ The logical Delivery Item key is:
 Route ID + source item key + locale key
 ```
 
-The first delivery creates the target item. A later source revision updates that same owned item. A new locale creates a separate Delivery Item. Target-native identifiers are stored in Route Items rather than inferred from user-editable names.
+The first delivery creates the target item. A later source revision updates
+that same owned item. A new locale creates a separate Delivery Item.
+Target-native identifiers are stored in Delivery Bindings rather than inferred
+from user-editable names.
 
 ## Initial and incremental behavior
 
@@ -120,7 +124,9 @@ Every error declares retryability and may carry a sanitized adapter code. Raw re
 - Rate limits honor `Retry-After` or equivalent CMS guidance.
 - Network timeouts and temporary unavailability retry with capped exponential backoff and jitter.
 - Authentication, invalid mapping, unsupported capability, and ownership violations do not retry automatically.
-- Transformation errors retry only when the processor identifies a transient cause.
+- When Transformation and Processor execution is implemented, deterministic
+  content errors will be terminal and explicitly classified transient failures
+  may retry.
 - Terminal Run Items can be manually replayed after configuration is corrected.
 
 Retry counts belong to CourierCMS execution history even when Oban performs scheduling.
@@ -134,9 +140,15 @@ Retry counts belong to CourierCMS execution history even when Oban performs sche
 
 ## Delivery success boundary
 
-Delivery succeeds when the target Adapter confirms acceptance into the Destination. Target hooks, native content generation, editorial workflow, publishing, and indexing are outside the success boundary.
+Delivery succeeds when the target Adapter confirms that the Delivery Item and
+all required Delivery Assets were accepted into the Destination. Target hooks,
+native content generation, editorial workflow, publishing, indexing, and other
+post-delivery actions are outside CourierCMS. CourierCMS does not request or
+track a downstream acknowledgement.
 
-Optional downstream acknowledgement may be added later but must remain a separate status.
+First-class Delivery Asset jobs are planned. In the current runtime, a
+supported asset operation occurs within the parent Run Item attempt, and its
+failure fails that Run Item visibly.
 
 ## Concurrency and ordering
 
