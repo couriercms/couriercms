@@ -57,10 +57,17 @@ defmodule CourierCMSWeb.Layouts do
             <.link navigate={~p"/routes"} class="btn btn-ghost btn-sm">Routes</.link>
             <.link navigate={~p"/destinations"} class="btn btn-ghost btn-sm">Destinations</.link>
             <.link navigate={~p"/deliveries"} class="btn btn-ghost btn-sm">Deliveries</.link>
-            <.link navigate={~p"/connector-events"} class="btn btn-ghost btn-sm">Events</.link>
+            <.link
+              :if={CourierCMS.ReleaseProfile.server?()}
+              navigate={~p"/connector-events"}
+              class="btn btn-ghost btn-sm"
+            >
+              Events
+            </.link>
             <.link
               :if={
-                @current_scope && CourierCMS.Accounts.Scope.role?(@current_scope, [:owner, :admin])
+                CourierCMS.ReleaseProfile.server?() && @current_scope &&
+                  CourierCMS.Accounts.Scope.role?(@current_scope, [:owner, :admin])
               }
               navigate={~p"/system/extensions"}
               class="btn btn-ghost btn-sm"
@@ -77,7 +84,10 @@ defmodule CourierCMSWeb.Layouts do
               Users
             </.link>
             <.theme_toggle />
-            <div :if={@current_scope} class="dropdown dropdown-end">
+            <div
+              :if={@current_scope && CourierCMS.ReleaseProfile.server?()}
+              class="dropdown dropdown-end"
+            >
               <button tabindex="0" class="btn btn-ghost btn-sm gap-2">
                 <span class="max-w-40 truncate">{@current_scope.user.email}</span>
                 <span class="badge badge-outline badge-xs">{@current_scope.membership.role}</span>
@@ -89,6 +99,12 @@ defmodule CourierCMSWeb.Layouts do
                 <li><.link href={~p"/users/log-out"} method="delete">Sign out</.link></li>
               </ul>
             </div>
+            <span
+              :if={@current_scope && CourierCMS.ReleaseProfile.local?()}
+              class="badge badge-outline badge-sm"
+            >
+              Local operator
+            </span>
             <.link :if={!@current_scope} navigate={~p"/users/log-in"} class="btn btn-primary btn-sm">Sign in</.link>
           </nav>
         </div>

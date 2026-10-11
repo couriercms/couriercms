@@ -1,5 +1,12 @@
 # Connector authoring
 
+Connectors are installed in an external content system and are not CourierCMS
+runtime Extensions. A connector sends the same versioned canonical event
+contract regardless of where CourierCMS runs. Server exposes connector ingress;
+the initial Local profile does not, so Local workflows use manual Runs,
+polling, or schedules while the application is open. There are no separate
+Local and Server connector codebases.
+
 A connector runs inside an external content system. It is not a CourierCMS
 runtime extension and must never be loaded by the extension registry.
 

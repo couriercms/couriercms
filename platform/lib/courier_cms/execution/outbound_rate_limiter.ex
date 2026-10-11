@@ -3,6 +3,7 @@ defmodule CourierCMS.Execution.OutboundRateLimiter do
 
   alias CourierCMS.ExtensionSDK.AdapterError
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
 
   def check(connection) do
     if Application.get_env(:couriercms, :outbound_rate_limiting, true) do
@@ -30,7 +31,7 @@ defmodule CourierCMS.Execution.OutboundRateLimiter do
         WHERE connection_rate_buckets.request_count < $4
         RETURNING request_count
         """,
-        [Ecto.UUID.dump!(connection.id), bucket, now, limit]
+        [Storage.uuid_parameter(connection.id), bucket, now, limit]
       )
 
     if result.num_rows == 1 do

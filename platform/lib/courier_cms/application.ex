@@ -20,10 +20,23 @@ defmodule CourierCMS.Application do
       CourierCMS.Extensions.PackageLoader,
       CourierCMS.Extensions.ComponentRegistry,
       CourierCMS.Repo,
-      {Oban, oban_options},
       {DNSCluster, query: Application.get_env(:couriercms, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: CourierCMS.PubSub}
     ]
+
+    children =
+      if CourierCMS.ReleaseProfile.local?() do
+        identity_children =
+          if Application.get_env(:couriercms, :start_local_identity, true),
+            do: [CourierCMS.LocalIdentity],
+            else: []
+
+        children ++ identity_children ++ [CourierCMS.LocalRecovery]
+      else
+        children
+      end
+
+    children = children ++ [{Oban, oban_options}]
 
     children =
       if Application.get_env(:couriercms, :heartbeat_enabled, true),

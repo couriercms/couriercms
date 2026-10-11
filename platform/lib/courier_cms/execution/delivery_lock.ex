@@ -10,6 +10,7 @@ defmodule CourierCMS.Execution.DeliveryLock do
   import Ecto.Query
 
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
 
   @primary_key {:delivery_key, :string, autogenerate: false}
   @timestamps_opts [type: :utc_datetime_usec]
@@ -39,7 +40,7 @@ defmodule CourierCMS.Execution.DeliveryLock do
     RETURNING delivery_key
     """
 
-    dumped_owner_token = Ecto.UUID.dump!(owner_token)
+    dumped_owner_token = Storage.uuid_parameter(owner_token)
 
     case Ecto.Adapters.SQL.query!(Repo, query, [delivery_key, dumped_owner_token, expires_at, now]) do
       %{num_rows: 1} -> :ok

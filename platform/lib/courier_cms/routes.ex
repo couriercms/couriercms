@@ -13,6 +13,7 @@ defmodule CourierCMS.Routes do
   alias CourierCMS.Destinations.Destination
   alias CourierCMS.Mapping
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
   alias CourierCMS.Routes.{Route, RouteRevision}
 
   @polling_modes ["incremental", "full"]
@@ -282,7 +283,7 @@ defmodule CourierCMS.Routes do
         destination =
           Destination
           |> where([current], current.id == ^destination.id)
-          |> lock("FOR UPDATE")
+          |> Storage.lock_for_update()
           |> Repo.one!()
 
         unless destination.lifecycle_status == :available and
@@ -455,7 +456,7 @@ defmodule CourierCMS.Routes do
           route =
             Route
             |> where([current], current.id == ^route.id)
-            |> lock("FOR UPDATE")
+            |> Storage.lock_for_update()
             |> Repo.one!()
             |> Repo.preload(:current_destination)
 
@@ -475,7 +476,7 @@ defmodule CourierCMS.Routes do
             destination =
               Destination
               |> where([current], current.id == ^destination_id)
-              |> lock("FOR UPDATE")
+              |> Storage.lock_for_update()
               |> Repo.one()
 
             unless destination && destination.workspace_id == route.workspace_id &&
@@ -554,7 +555,7 @@ defmodule CourierCMS.Routes do
           route =
             Route
             |> where([current], current.id == ^route.id)
-            |> lock("FOR UPDATE")
+            |> Storage.lock_for_update()
             |> Repo.one!()
             |> Repo.preload(:current_destination)
 

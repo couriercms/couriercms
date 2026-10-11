@@ -1,5 +1,6 @@
 defmodule CourierCMSWeb.UserSessionControllerTest do
   use CourierCMSWeb.ConnCase, async: true
+  @moduletag :server_only
 
   import CourierCMS.AccountsFixtures
   alias CourierCMS.Accounts

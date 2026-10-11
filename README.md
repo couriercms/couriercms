@@ -30,7 +30,24 @@ automation platform.
 - `examples/` — optional target-owned consumers and hooks
 - `docs/` — concepts, architecture, development, operations, and ADRs
 
-## Local development
+## Choose Local or Server
+
+CourierCMS ships the same delivery engine in two release profiles:
+
+- **Local** is a downloadable, single-operator application for a laptop or
+  workstation. It uses SQLite, binds only to `127.0.0.1`, and needs no separate
+  database installation. Scheduling operates while CourierCMS is running.
+- **Server** is the continuously operated, authenticated deployment. It uses
+  PostgreSQL and supports connector ingress, multiple users, split web/worker
+  roles, and multiple nodes.
+
+Both profiles run the same Routes, item-level jobs, retries, reconciliation,
+SDK, and Extension packages. Local is not a reduced-quality delivery engine;
+it trades availability, concurrency, and scale for a simpler installation.
+Local and Server databases are intentionally not interchangeable or
+synchronized.
+
+## Development
 
 Install the versions in `.tool-versions`, start PostgreSQL, and use the local
 scripts to build package-loaded extensions before starting the platform:
@@ -51,6 +68,16 @@ The scripts compile the SDK, package the official and fake development
 extensions into `.local/extensions`, configure `COURIERCMS_EXTENSIONS_PATH`,
 set up the platform, and start Phoenix. To run all local checks, use
 `scripts/test.ps1` or `sh scripts/test.sh`.
+
+To develop against the Local profile without PostgreSQL:
+
+```powershell
+$env:COURIERCMS_RELEASE_PROFILE = 'local'
+./scripts/dev.ps1
+```
+
+See [Local mode](docs/development/local-mode.md) and
+[Server mode](docs/operations/server-mode.md) for the operating differences.
 
 To run Compose with locally built or custom packages mounted read-only over the
 image's bundled Extensions, use:

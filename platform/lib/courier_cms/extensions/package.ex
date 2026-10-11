@@ -410,6 +410,7 @@ defmodule CourierCMS.Extensions.Package do
     with {:ok, package_modules} <- package_modules(verified.files),
          :ok <- ensure_modules_available(package_modules),
          :ok <- add_code_path(code_path),
+         :ok <- load_package_modules(package_modules, code_path),
          :ok <- load_otp_application(app),
          {:ok, _started} <- Application.ensure_all_started(app, :temporary),
          {:ok, entries} <-
@@ -450,6 +451,25 @@ defmodule CourierCMS.Extensions.Package do
       result when result in [:ok, true] -> :ok
       other -> {:error, "could not add Extension code path: #{inspect(other)}"}
     end
+  end
+
+  # Releases use Erlang's embedded code-loading mode, where adding a path does
+  # not make modules load automatically. Load every verified package module
+  # explicitly before OTP starts the Extension application. Development and
+  # test run in interactive mode, so release startup smoke tests are required
+  # to protect this boundary.
+  defp load_package_modules(modules, code_path) do
+    Enum.reduce_while(modules, :ok, fn module, :ok ->
+      beam = Path.join(code_path, Atom.to_string(module)) |> String.to_charlist()
+
+      case :code.load_abs(beam) do
+        {:module, ^module} ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          {:halt, {:error, "cannot load #{inspect(module)}: #{inspect(reason)}"}}
+      end
+    end)
   end
 
   defp package_modules(files) do

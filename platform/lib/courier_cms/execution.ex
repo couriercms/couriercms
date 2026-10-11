@@ -25,6 +25,7 @@ defmodule CourierCMS.Execution do
   alias CourierCMS.Destinations.Destination
   alias CourierCMS.Ownership.{DeliveryBinding, RouteItem}
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
   alias CourierCMS.Routes.Route
   alias CourierCMS.Transport.{CanonicalDeliveryDocument, DeliveryName, Projection}
   alias CourierCMS.Workspaces
@@ -151,7 +152,12 @@ defmodule CourierCMS.Execution do
 
   defp maybe_filter_run_item_source(query, source_query) do
     pattern = "%#{source_query}%"
-    where(query, [item], ilike(item.source_item_key, ^pattern))
+
+    if CourierCMS.ReleaseProfile.local?() do
+      where(query, [item], fragment("lower(?) LIKE lower(?)", item.source_item_key, ^pattern))
+    else
+      where(query, [item], ilike(item.source_item_key, ^pattern))
+    end
   end
 
   def preview_route(%Scope{} = scope, route_id, opts \\ []) do
@@ -299,7 +305,7 @@ defmodule CourierCMS.Execution do
         locked_route =
           Route
           |> where([current], current.id == ^route.id)
-          |> lock("FOR UPDATE")
+          |> Storage.lock_for_update()
           |> Repo.one!()
           |> Repo.preload([
             :current_revision,
@@ -622,7 +628,7 @@ defmodule CourierCMS.Execution do
           current_run =
             Run
             |> where([current], current.id == ^run.id)
-            |> lock("FOR UPDATE")
+            |> Storage.lock_for_update()
             |> Repo.one!()
 
           if current_run.status not in [:queued, :planning, :running] do
@@ -1017,7 +1023,7 @@ defmodule CourierCMS.Execution do
   def reconcile_run(run_id) do
     {:ok, run} =
       Repo.transaction(fn ->
-        run = Run |> where([run], run.id == ^run_id) |> lock("FOR UPDATE") |> Repo.one!()
+        run = Run |> where([run], run.id == ^run_id) |> Storage.lock_for_update() |> Repo.one!()
 
         counts =
           Repo.all(
@@ -1071,7 +1077,7 @@ defmodule CourierCMS.Execution do
       current =
         RunItem
         |> where([item], item.id == ^run_item.id)
-        |> lock("FOR UPDATE")
+        |> Storage.lock_for_update()
         |> Repo.one!()
 
       next_status = Map.fetch!(attrs, :status)
@@ -1688,19 +1694,20 @@ defmodule CourierCMS.Execution do
 
     page_identities = identities |> Enum.map(&{&1.item_key, &1.locale_key}) |> MapSet.new()
 
-    identity_filter =
-      Enum.reduce(page_identities, dynamic(false), fn {item_key, locale_key}, filter ->
-        dynamic(
-          [item],
-          ^filter or (item.source_item_key == ^item_key and item.locale_key == ^locale_key)
-        )
-      end)
+    source_item_keys = Enum.map(page_identities, &elem(&1, 0))
 
-    existing_in_page =
+    existing_identities =
       RunItem
       |> where([item], item.run_id == ^run.id)
-      |> where(^identity_filter)
-      |> Repo.aggregate(:count)
+      |> where([item], item.source_item_key in ^source_item_keys)
+      |> select([item], {item.source_item_key, item.locale_key})
+      |> Repo.all()
+      |> MapSet.new()
+
+    existing_in_page =
+      page_identities
+      |> MapSet.intersection(existing_identities)
+      |> MapSet.size()
 
     new_count = MapSet.size(page_identities) - existing_in_page
 
@@ -1714,7 +1721,10 @@ defmodule CourierCMS.Execution do
   defp finalize_planning(run) do
     case Repo.transaction(fn ->
            current_run =
-             Run |> where([current], current.id == ^run.id) |> lock("FOR UPDATE") |> Repo.one!()
+             Run
+             |> where([current], current.id == ^run.id)
+             |> Storage.lock_for_update()
+             |> Repo.one!()
 
            if current_run.status == :cancelled do
              Repo.rollback(:cancelled)
@@ -1834,7 +1844,7 @@ defmodule CourierCMS.Execution do
         locked_run =
           Run
           |> where([current], current.id == ^run.id)
-          |> lock("FOR UPDATE")
+          |> Storage.lock_for_update()
           |> Repo.one!()
           |> Repo.preload(:route_revision)
 

@@ -5,9 +5,9 @@ fix exists. They never suppress application-runtime advisories silently.
 
 ## Sanity Studio build toolchain
 
-- Reviewed: 2026-10-10
+- Reviewed: 2026-10-11
 - Review cadence: monthly and on every Sanity dependency update
-- Next scheduled review: 2026-11-10
+- Next scheduled review: 2026-11-11
 - Scope: `examples/sanity-consumer` development/build dependency graph
 - Upstream: latest Sanity and Vision release `6.16.0`
 - Status: accepted temporarily; review on every Sanity upgrade
@@ -26,9 +26,9 @@ available.
 
 ## Cloak unused cipher and field-type paths
 
-- Reviewed: 2026-10-10
+- Reviewed: 2026-10-11
 - Review cadence: monthly and on every Cloak dependency or encryption configuration change
-- Next scheduled review: 2026-11-10
+- Next scheduled review: 2026-11-11
 - Scope: `platform` runtime dependency graph
 - Status: acknowledged narrowly while no patched Hex releases are available
 

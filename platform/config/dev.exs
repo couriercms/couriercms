@@ -2,16 +2,36 @@ import Config
 
 config :couriercms, CourierCMS.Mailer, adapter: Swoosh.Adapters.Local
 
-# Configure your database
-config :couriercms, CourierCMS.Repo,
-  username: System.get_env("POSTGRES_USER", "couriercms"),
-  password: System.get_env("POSTGRES_PASSWORD", "couriercms_dev"),
-  hostname: System.get_env("POSTGRES_HOST", "localhost"),
-  port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
-  database: System.get_env("POSTGRES_DB", "couriercms_dev"),
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+# Configure the selected release profile's database. The adapter itself is
+# selected in config.exs and compiled into an isolated profile build directory.
+case System.get_env("COURIERCMS_RELEASE_PROFILE", "server") do
+  "local" ->
+    config :couriercms, CourierCMS.Repo,
+      database:
+        System.get_env(
+          "COURIERCMS_SQLITE_PATH",
+          Path.expand("../../.local/couriercms_dev.db", __DIR__)
+        ),
+      pool_size: 1,
+      default_transaction_mode: :immediate,
+      journal_mode: :wal,
+      temp_store: :memory,
+      busy_timeout: 5_000,
+      foreign_keys: :on,
+      stacktrace: true,
+      show_sensitive_data_on_connection_error: true
+
+  "server" ->
+    config :couriercms, CourierCMS.Repo,
+      username: System.get_env("POSTGRES_USER", "couriercms"),
+      password: System.get_env("POSTGRES_PASSWORD", "couriercms_dev"),
+      hostname: System.get_env("POSTGRES_HOST", "localhost"),
+      port: String.to_integer(System.get_env("POSTGRES_PORT", "5432")),
+      database: System.get_env("POSTGRES_DB", "couriercms_dev"),
+      stacktrace: true,
+      show_sensitive_data_on_connection_error: true,
+      pool_size: 10
+end
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

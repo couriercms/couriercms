@@ -11,6 +11,8 @@
 ## Architecture
 
 - [System overview](architecture/overview.md)
+- [Release profiles](architecture/release-profiles.md)
+- [Storage portability](architecture/storage-portability.md)
 - [Domain model](architecture/domain-model.md)
 - [Execution and reliability](architecture/execution.md)
 - [Delivery envelope](architecture/delivery-envelope.md)
@@ -23,6 +25,8 @@
 ## Development
 
 - [Local setup](development/setup.md)
+- [Local mode](development/local-mode.md)
+- [Local troubleshooting](development/local-troubleshooting.md)
 - [Testing](development/testing.md)
 - [Extension authoring](development/extension-authoring.md)
 - [Connector authoring](development/connector-authoring.md)
@@ -30,8 +34,10 @@
 ## Operations
 
 - [Configuration and scaling](operations/configuration-and-scaling.md)
+- [Server mode](operations/server-mode.md)
 - [Deployment and upgrades](operations/deployment-and-upgrade.md)
 - [Backup and restore](operations/backup-and-restore.md)
+- [Local backup and recovery](operations/local-backup-and-recovery.md)
 - [Extension management](operations/extension-management.md)
 - [Production readiness](operations/readiness.md)
 - [Security advisory exceptions](operations/security-advisories.md)

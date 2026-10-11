@@ -1,5 +1,6 @@
 defmodule CourierCMSWeb.UserAuthTest do
   use CourierCMSWeb.ConnCase, async: true
+  @moduletag :server_only
 
   alias Phoenix.LiveView
   alias CourierCMS.Accounts

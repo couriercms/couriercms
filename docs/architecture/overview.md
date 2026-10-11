@@ -2,9 +2,14 @@
 
 ## Style
 
-CourierCMS begins as a modular Phoenix monolith backed by PostgreSQL and Oban. It is not an umbrella application or collection of microservices. Domain boundaries are enforced through modules, contexts, behaviours, data ownership, and tests.
+CourierCMS is a modular Phoenix monolith using Ecto and Oban. It is not an
+umbrella application or collection of microservices. Domain boundaries are
+enforced through modules, contexts, behaviours, data ownership, and tests.
 
-The monolith is one release artifact but can run as a combined process, a web process, or a worker process. These are deployment roles, not separate applications or domain services.
+One codebase produces two release profiles. Local is a single process backed by
+SQLite; Server is backed by PostgreSQL and may run as a combined, web, or worker
+process. Server roles are deployment choices, not separate applications or
+domain services. See [release profiles](release-profiles.md).
 
 ## Runtime view
 
@@ -24,7 +29,7 @@ The monolith is one release artifact but can run as a combined process, a web pr
   |                         |                          |
   | Source Adapter -> canonical document -> Target Adapter |
   |                         |                          |
-  |                 PostgreSQL + PubSub                 |
+  |          SQLite or PostgreSQL + PubSub              |
   +-----------+----------------------------+-----------+
               |                            |
      Content source/API          CMS/content delivery store
@@ -34,6 +39,14 @@ The monolith is one release artifact but can run as a combined process, a web pr
 ```
 
 ## Deployment topology
+
+Local runs exactly one application process and listens on loopback:
+
+```text
+Browser -> CourierCMS Local (web + workers + scheduler) -> SQLite file
+```
+
+Server supports the following topologies.
 
 The default `all` role preserves the small-installation topology:
 

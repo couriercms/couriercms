@@ -1,6 +1,12 @@
 defmodule CourierCMSWeb.ConnectorEventControllerTest do
   use CourierCMSWeb.ConnCase, async: true
 
+  import Ecto.Query
+
+  if CourierCMS.ReleaseProfile.local?() do
+    @moduletag skip: "connector HTTP ingress is a Server-profile capability"
+  end
+
   alias CourierCMS.Connectors
   alias CourierCMS.Connectors.ConnectorEvent
   alias CourierCMS.Connectors.ConnectorEventWorker
@@ -56,7 +62,7 @@ defmodule CourierCMSWeb.ConnectorEventControllerTest do
 
     assert %{"status" => "accepted"} = json_response(accepted, 202)
     assert Repo.aggregate(ConnectorEvent, :count) == 1
-    assert Repo.aggregate(Oban.Job, :count) == 1
+    assert connector_job_count() == 1
 
     duplicate =
       build_conn()
@@ -67,7 +73,7 @@ defmodule CourierCMSWeb.ConnectorEventControllerTest do
 
     assert %{"status" => "duplicate"} = json_response(duplicate, 200)
     assert Repo.aggregate(ConnectorEvent, :count) == 1
-    assert Repo.aggregate(Oban.Job, :count) == 1
+    assert connector_job_count() == 1
   end
 
   test "rejects an invalid signature without storing the event", %{
@@ -155,7 +161,7 @@ defmodule CourierCMSWeb.ConnectorEventControllerTest do
              )
 
     assert Repo.aggregate(ConnectorEvent, :count) == 0
-    assert Repo.aggregate(Oban.Job, :count) == 0
+    assert connector_job_count() == 0
   end
 
   test "a duplicate request repairs a legacy accepted event without a job", %{
@@ -196,7 +202,7 @@ defmodule CourierCMSWeb.ConnectorEventControllerTest do
 
     assert %{"status" => "duplicate"} = json_response(response, 200)
     assert Repo.aggregate(ConnectorEvent, :count) == 1
-    assert Repo.aggregate(Oban.Job, :count) == 1
+    assert connector_job_count() == 1
   end
 
   test "rejects CMS-native event fields at the generic boundary", %{
@@ -293,5 +299,10 @@ defmodule CourierCMSWeb.ConnectorEventControllerTest do
   defp signature(secret, timestamp, body) do
     digest = :crypto.mac(:hmac, :sha256, secret, timestamp <> "." <> body)
     "sha256=" <> Base.encode16(digest, case: :lower)
+  end
+
+  defp connector_job_count do
+    worker = inspect(ConnectorEventWorker)
+    Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count)
   end
 end

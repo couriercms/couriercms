@@ -17,10 +17,12 @@ defmodule CourierCMSWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/api/connectors", CourierCMSWeb do
-    pipe_through :api
+  if Application.compile_env!(:couriercms, :release_profile) == :server do
+    scope "/api/connectors", CourierCMSWeb do
+      pipe_through :api
 
-    post "/:connection_id/events", ConnectorEventController, :create
+      post "/:connection_id/events", ConnectorEventController, :create
+    end
   end
 
   scope "/health", CourierCMSWeb do
@@ -70,14 +72,22 @@ defmodule CourierCMSWeb.Router do
       live "/runs/:id", RunLive
       live "/destinations", DestinationsLive
       live "/deliveries", DeliveriesLive
-      live "/connector-events", ConnectorEventsLive
       live "/system/extensions", ExtensionsLive
+    end
+  end
+
+  scope "/", CourierCMSWeb do
+    pipe_through [:browser, :require_authenticated_user, :require_server_profile]
+
+    live_session :server_authenticated_user,
+      on_mount: [{CourierCMSWeb.UserAuth, :require_authenticated}] do
+      live "/connector-events", ConnectorEventsLive
       live "/users", UsersLive
     end
   end
 
   scope "/", CourierCMSWeb do
-    pipe_through [:browser]
+    pipe_through [:browser, :require_server_profile]
 
     live_session :current_user,
       on_mount: [{CourierCMSWeb.UserAuth, :mount_current_scope}] do

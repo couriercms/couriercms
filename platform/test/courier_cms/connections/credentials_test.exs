@@ -5,6 +5,7 @@ defmodule CourierCMS.Connections.CredentialsTest do
 
   alias CourierCMS.Connections
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
 
   test "encrypts WordPress credentials at rest" do
     scope = user_fixture() |> CourierCMS.Accounts.scope_for_user()
@@ -31,7 +32,7 @@ defmodule CourierCMS.Connections.CredentialsTest do
       Ecto.Adapters.SQL.query!(
         Repo,
         "SELECT credentials FROM connections WHERE id = $1",
-        [Ecto.UUID.dump!(connection.id)]
+        [Storage.uuid_parameter(connection.id)]
       )
 
     refute ciphertext =~ secret
@@ -65,7 +66,7 @@ defmodule CourierCMS.Connections.CredentialsTest do
       Ecto.Adapters.SQL.query!(
         Repo,
         "SELECT credentials FROM connections WHERE id = $1",
-        [Ecto.UUID.dump!(connection.id)]
+        [Storage.uuid_parameter(connection.id)]
       )
 
     refute ciphertext =~ secret
@@ -81,7 +82,7 @@ defmodule CourierCMS.Connections.CredentialsTest do
       Ecto.Adapters.SQL.query!(
         Repo,
         "SELECT credentials FROM connections WHERE id = $1",
-        [Ecto.UUID.dump!(connection.id)]
+        [Storage.uuid_parameter(connection.id)]
       )
 
     refute rotated_ciphertext == ciphertext

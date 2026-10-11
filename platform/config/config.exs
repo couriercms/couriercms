@@ -7,6 +7,33 @@
 # General application configuration
 import Config
 
+release_profile =
+  case System.get_env("COURIERCMS_RELEASE_PROFILE", "server") do
+    "local" ->
+      :local
+
+    "server" ->
+      :server
+
+    value ->
+      raise "unsupported COURIERCMS_RELEASE_PROFILE=#{inspect(value)}; expected local or server"
+  end
+
+ecto_adapter =
+  case release_profile do
+    :local -> Ecto.Adapters.SQLite3
+    :server -> Ecto.Adapters.Postgres
+  end
+
+config :couriercms,
+  start_local_identity: true,
+  release_profile: release_profile,
+  ecto_adapter: ecto_adapter,
+  allow_test_authenticated_sessions: false
+
+config :couriercms, CourierCMS.Repo,
+  priv: if(release_profile == :local, do: "priv/sqlite_repo", else: "priv/repo")
+
 config :swoosh, :api_client, false
 config :couriercms_extension_sdk, http_client: CourierCMS.Extensions.HTTPClient
 
@@ -32,8 +59,9 @@ if cacerts_path =
 end
 
 config :couriercms, Oban,
-  engine: Oban.Engines.Basic,
-  notifier: Oban.Notifiers.Postgres,
+  engine: if(release_profile == :local, do: Oban.Engines.Lite, else: Oban.Engines.Basic),
+  notifier:
+    if(release_profile == :local, do: Oban.Notifiers.Isolated, else: Oban.Notifiers.Postgres),
   repo: CourierCMS.Repo,
   queues: [route_planning: 2, delivery: 10, webhooks: 5, maintenance: 1],
   plugins: [

@@ -7,6 +7,7 @@ defmodule CourierCMS.Execution.ConnectionLimiter do
   """
 
   alias CourierCMS.Repo
+  alias CourierCMS.Storage
 
   @type lease :: {Ecto.UUID.t(), pos_integer()}
 
@@ -47,7 +48,7 @@ defmodule CourierCMS.Execution.ConnectionLimiter do
       DELETE FROM connection_leases
       WHERE connection_id = $1 AND slot_number = $2 AND owner_token = $3
       """,
-      [Ecto.UUID.dump!(connection_id), slot_number, Ecto.UUID.dump!(owner_token)]
+      [Storage.uuid_parameter(connection_id), slot_number, Storage.uuid_parameter(owner_token)]
     )
 
     :ok
@@ -92,9 +93,9 @@ defmodule CourierCMS.Execution.ConnectionLimiter do
     """
 
     params = [
-      Ecto.UUID.dump!(connection_id),
+      Storage.uuid_parameter(connection_id),
       slot_number,
-      Ecto.UUID.dump!(owner_token),
+      Storage.uuid_parameter(owner_token),
       expires_at,
       now
     ]

@@ -1,5 +1,10 @@
 # Extension Development
 
+An Extension package is profile-independent. Authors publish one package for
+Local and Server; the platform supplies profile-specific storage and job
+infrastructure behind the stable SDK contract. Do not branch Adapter behavior
+on the release profile or depend on platform database internals.
+
 This guide describes the native Extension development model. The SDK, startup
 loader, and independently buildable WordPress and Sanity OTP applications are
 implemented.

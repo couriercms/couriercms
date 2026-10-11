@@ -54,10 +54,19 @@ after verification. Never rotate the database and key backups independently.
 
 ## Authentication and authorization
 
-All application pages require authentication. CourierCMS uses invite-only email
-magic links; it has no public registration or password-login UI. A user also
-needs an active membership in the current Workspace. Login requests return the
-same message for known and unknown email addresses.
+In Server, all application pages require authentication. CourierCMS uses
+invite-only email magic links; it has no public registration or password-login
+UI. A user also needs an active membership in the current Workspace. Login
+requests return the same message for known and unknown email addresses.
+
+Local has one implicit internal operator and Workspace. It constructs the same
+authorization scope used by Server contexts; it does not bypass context
+authorization and does not expose a general disable-authentication setting.
+Its security boundary is the workstation account plus a listener hard-coded to
+IPv4 loopback (`127.0.0.1`). Local refuses Server deployment roles, has no
+Connector ingress, and cannot be configured to bind publicly. Anyone able to
+use the operator's OS account can use Local CourierCMS, so workstation access
+and disk encryption matter.
 
 V0 has one default Workspace and no workspace switcher, but Connections, Routes,
 Runs, Destination views, and membership administration are scoped by
@@ -132,6 +141,13 @@ rich text, binary data, credentials, authorization headers, webhook bodies, and
 raw third-party responses.
 
 Developer debug logging must use synthetic data and must not be enabled by default in production.
+
+The Local data directory contains the SQLite database, encryption material,
+release cookie, installed Extensions, and logs. The database may contain
+client content, delivery errors, endpoint details, and encrypted credentials.
+Back up the database together with its installation secrets, protect the whole
+backup as sensitive client data, and never publish either file as a diagnostic
+artifact.
 
 ## Target ownership
 

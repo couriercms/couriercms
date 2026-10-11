@@ -1,5 +1,6 @@
 defmodule CourierCMSWeb.UserLive.ConfirmationTest do
   use CourierCMSWeb.ConnCase, async: true
+  @moduletag :server_only
 
   import Phoenix.LiveViewTest
   import CourierCMS.AccountsFixtures

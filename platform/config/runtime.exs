@@ -1,5 +1,8 @@
 import Config
 
+release_profile = Application.fetch_env!(:couriercms, :release_profile)
+local_production? = release_profile == :local and config_env() == :prod
+
 deployment_role =
   case System.get_env("COURIERCMS_ROLE", "all") |> String.trim() |> String.downcase() do
     "all" -> :all
@@ -7,6 +10,7 @@ deployment_role =
     "worker" -> :worker
     role -> raise "COURIERCMS_ROLE must be all, web, or worker; got: #{inspect(role)}"
   end
+  |> CourierCMS.ReleaseProfile.validate_deployment_role!()
 
 config :couriercms, :deployment_role, deployment_role
 
@@ -72,14 +76,26 @@ trusted_extension_keys =
 
 extensions_dir =
   case System.get_env("COURIERCMS_EXTENSIONS_PATH") do
-    value when is_binary(value) and value != "" -> value
-    _other -> Application.fetch_env!(:couriercms, :extensions_dir)
+    value when is_binary(value) and value != "" ->
+      value
+
+    _other when local_production? ->
+      CourierCMS.LocalPaths.extensions_dir()
+
+    _other ->
+      Application.fetch_env!(:couriercms, :extensions_dir)
   end
 
 extension_cache_dir =
   case System.get_env("COURIERCMS_EXTENSION_CACHE_DIR") do
-    value when is_binary(value) and value != "" -> value
-    _other -> Application.fetch_env!(:couriercms, :extension_cache_dir)
+    value when is_binary(value) and value != "" ->
+      value
+
+    _other when local_production? ->
+      CourierCMS.LocalPaths.extension_cache_dir()
+
+    _other ->
+      Application.fetch_env!(:couriercms, :extension_cache_dir)
   end
 
 config :couriercms,
@@ -88,7 +104,12 @@ config :couriercms,
   extension_signature_policy: signature_policy,
   extension_trusted_keys: trusted_extension_keys
 
-if config_env() == :prod do
+local_secrets =
+  if config_env() == :prod and release_profile == :local do
+    CourierCMS.LocalSecrets.load_or_create!()
+  end
+
+if config_env() == :prod and release_profile == :server do
   config :couriercms,
     allow_http_cms_endpoints:
       System.get_env("COURIERCMS_ALLOW_HTTP_CMS_ENDPOINTS", "false") in ["true", "1"],
@@ -97,6 +118,21 @@ if config_env() == :prod do
     allow_unsafe_local_cms_endpoints:
       System.get_env("COURIERCMS_ALLOW_UNSAFE_LOCAL_ENDPOINTS", "false") in ["true", "1"],
     allow_unresolved_cms_hosts: false
+end
+
+if config_env() == :prod and release_profile == :local do
+  config :couriercms,
+    failure_email_alerts: false,
+    require_extension_consistency: false,
+    dns_cluster_query: nil
+
+  config :couriercms, CourierCMS.Vault,
+    json_library: Jason,
+    ciphers: [
+      default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: local_secrets.vault_key}
+    ]
+
+  config :couriercms, CourierCMS.Mailer, adapter: Swoosh.Adapters.Local
 end
 
 if delivery_lock_ttl = System.get_env("COURIERCMS_DELIVERY_LOCK_TTL_MS") do
@@ -162,7 +198,7 @@ for {environment_name, application_key, minimum} <- [
   end
 end
 
-if config_env() == :prod do
+if config_env() == :prod and release_profile == :server do
   vault_key_version = System.get_env("COURIERCMS_VAULT_KEY_VERSION", "1")
 
   if not Regex.match?(~r/^\d+$/, vault_key_version) do
@@ -219,6 +255,28 @@ if config_env() == :prod do
     auth: :always
 end
 
+if config_env() == :prod and release_profile == :local do
+  CourierCMS.LocalPaths.prepare!()
+
+  config :couriercms, CourierCMS.Repo,
+    database: CourierCMS.LocalPaths.database_path(),
+    pool_size: 1,
+    default_transaction_mode: :immediate,
+    journal_mode: :wal,
+    temp_store: :memory,
+    busy_timeout: 5_000,
+    foreign_keys: :on
+
+  config :couriercms, CourierCMSWeb.Endpoint,
+    url: [
+      host: "localhost",
+      port: String.to_integer(System.get_env("PORT", "4000")),
+      scheme: "http"
+    ],
+    http: [ip: CourierCMS.ReleaseProfile.http_ip()],
+    secret_key_base: local_secrets.cookie_secret
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -259,7 +317,7 @@ if config_env() == :dev do
     ]
 end
 
-if config_env() == :prod do
+if config_env() == :prod and release_profile == :server do
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

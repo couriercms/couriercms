@@ -1,5 +1,10 @@
 # Deploy and upgrade CourierCMS
 
+This page describes the Server profile. The downloadable Windows Local profile
+is upgraded by stopping it, taking a Local backup, replacing the extracted
+application files, and starting the new release against the persistent Local
+data directory.
+
 ## Before deployment
 
 1. Back up PostgreSQL and the separately stored `COURIERCMS_VAULT_KEY`.

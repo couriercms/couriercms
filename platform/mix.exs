@@ -6,6 +6,7 @@ defmodule CourierCMS.MixProject do
       app: :couriercms,
       version: "0.1.0",
       elixir: "~> 1.17",
+      build_path: build_path(),
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       hex: [
@@ -40,6 +41,20 @@ defmodule CourierCMS.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  # Repo adapters are compile-time choices. Separate build trees let developers
+  # and CI switch profiles without stale compile-time configuration.
+  defp build_path do
+    profile = System.get_env("COURIERCMS_RELEASE_PROFILE", "server")
+
+    unless profile in ["local", "server"] do
+      raise "unsupported COURIERCMS_RELEASE_PROFILE=#{inspect(profile)}; expected local or server"
+    end
+
+    # Mix appends the environment to this root. Keep Server on the conventional
+    # path expected by the Docker build and put Local in a separate tree.
+    if profile == "local", do: Path.join("_build", "local"), else: "_build"
+  end
+
   # Specifies your project dependencies.
   #
   # Type `mix help deps` for examples and options.
@@ -53,6 +68,7 @@ defmodule CourierCMS.MixProject do
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
+      {:ecto_sqlite3, "~> 0.25"},
       {:oban, "~> 2.24"},
       {:cloak_ecto, "~> 1.3"},
       {:req, "~> 0.7"},

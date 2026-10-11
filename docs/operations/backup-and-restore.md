@@ -1,5 +1,8 @@
 # Back up and restore CourierCMS
 
+This page describes Server PostgreSQL backup. For the SQLite desktop artifact,
+use [Local backup and recovery](local-backup-and-recovery.md).
+
 ## What must be protected
 
 - The complete PostgreSQL database, including Oban jobs and migration state

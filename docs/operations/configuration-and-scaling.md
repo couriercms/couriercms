@@ -1,5 +1,11 @@
 # Operations
 
+This guide describes the Server profile. Local always uses one process, one
+SQLite database, an implicit operator, and a loopback listener. Local uses the
+same scheduler, but scheduled work can execute only while the application is
+running; startup reconciliation recovers durable work interrupted by a stop.
+See [Local mode](../development/local-mode.md).
+
 ## Initial deployment
 
 V0 targets Docker Compose with two required services:

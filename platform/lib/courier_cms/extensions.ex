@@ -358,17 +358,34 @@ defmodule CourierCMS.Extensions do
     |> join(:inner, [run], route in Route, on: route.id == run.route_id)
     |> maybe_workspace(:run, workspace_id)
     |> where([run], run.status in ^@unfinished_run_statuses)
-    |> where(
-      [run],
-      fragment("?->>'extension_id' = ?", run.source_artifact, ^extension_id) or
-        fragment("?->>'extension_id' = ?", run.target_artifact, ^extension_id) or
-        fragment(
-          "EXISTS (SELECT 1 FROM unnest(?) AS artifact WHERE artifact->>'extension_id' = ?)",
-          run.processor_artifacts,
-          ^extension_id
-        )
-    )
+    |> where(^artifact_reference(extension_id))
     |> Repo.aggregate(:count, :id)
+  end
+
+  defp artifact_reference(extension_id) do
+    if CourierCMS.ReleaseProfile.local?() do
+      dynamic(
+        [run],
+        fragment("json_extract(?, '$.extension_id') = ?", run.source_artifact, ^extension_id) or
+          fragment("json_extract(?, '$.extension_id') = ?", run.target_artifact, ^extension_id) or
+          fragment(
+            "EXISTS (SELECT 1 FROM json_each(?) AS artifact WHERE json_extract(artifact.value, '$.extension_id') = ?)",
+            run.processor_artifacts,
+            ^extension_id
+          )
+      )
+    else
+      dynamic(
+        [run],
+        fragment("?->>'extension_id' = ?", run.source_artifact, ^extension_id) or
+          fragment("?->>'extension_id' = ?", run.target_artifact, ^extension_id) or
+          fragment(
+            "EXISTS (SELECT 1 FROM unnest(?) AS artifact WHERE artifact->>'extension_id' = ?)",
+            run.processor_artifacts,
+            ^extension_id
+          )
+      )
+    end
   end
 
   defp maybe_workspace(query, _binding, nil), do: query

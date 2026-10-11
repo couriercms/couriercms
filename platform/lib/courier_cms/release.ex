@@ -8,7 +8,11 @@ defmodule CourierCMS.Release do
 
     for repo <- repos() do
       {:ok, _function_result, _apps} =
-        Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
+        Ecto.Migrator.with_repo(
+          repo,
+          &Ecto.Migrator.run(&1, :up, all: true),
+          pool_size: migration_pool_size()
+        )
     end
   end
 
@@ -16,7 +20,11 @@ defmodule CourierCMS.Release do
     load_app()
 
     {:ok, _function_result, _apps} =
-      Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))
+      Ecto.Migrator.with_repo(
+        repo,
+        &Ecto.Migrator.run(&1, :down, to: version),
+        pool_size: migration_pool_size()
+      )
   end
 
   def assert_job_compatibility! do
@@ -72,7 +80,50 @@ defmodule CourierCMS.Release do
     :ok
   end
 
+  @doc "Returns a non-sensitive fingerprint of a Local installation's durable identity."
+  def local_state_fingerprint do
+    load_app()
+
+    unless Application.fetch_env!(@app, :release_profile) == :local do
+      raise "local_state_fingerprint is available only in a Local release"
+    end
+
+    {:ok, durable_identity, _apps} =
+      Ecto.Migrator.with_repo(
+        CourierCMS.Repo,
+        fn repo ->
+          for {table, column} <- [
+                {"workspaces", "id"},
+                {"users", "id"},
+                {"workspace_memberships", "id"},
+                {"schema_migrations", "version"}
+              ] do
+            %{rows: rows} =
+              Ecto.Adapters.SQL.query!(
+                repo,
+                "SELECT #{column} FROM #{table} ORDER BY #{column}",
+                []
+              )
+
+            {table, rows}
+          end
+        end,
+        pool_size: 1
+      )
+
+    :sha256
+    |> :crypto.hash(:erlang.term_to_binary(durable_identity))
+    |> Base.encode16(case: :lower)
+  end
+
   defp repos, do: Application.fetch_env!(@app, :ecto_repos)
+
+  # Ecto's release migrator defaults to a two-connection pool. SQLite can only
+  # have one migration writer, and each new connection also applies journal
+  # pragmas, so Local deliberately starts a single migration connection.
+  defp migration_pool_size do
+    if Application.fetch_env!(@app, :release_profile) == :local, do: 1, else: 2
+  end
 
   defp load_app do
     Application.load(@app)

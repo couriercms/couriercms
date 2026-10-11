@@ -78,15 +78,28 @@ defmodule CourierCMS.Observability do
   end
 
   defp queue_snapshot do
-    sql = """
-    SELECT queue,
-           COUNT(*)::bigint AS depth,
-           COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at))), 0)::bigint AS oldest_age
-    FROM oban_jobs
-    WHERE state IN ('available', 'scheduled', 'retryable', 'executing')
-    GROUP BY queue
-    ORDER BY queue
-    """
+    sql =
+      if CourierCMS.ReleaseProfile.local?() do
+        """
+        SELECT queue,
+               COUNT(*) AS depth,
+               CAST(COALESCE((julianday('now') - julianday(MIN(scheduled_at))) * 86400, 0) AS INTEGER) AS oldest_age
+        FROM oban_jobs
+        WHERE state IN ('available', 'scheduled', 'retryable', 'executing')
+        GROUP BY queue
+        ORDER BY queue
+        """
+      else
+        """
+        SELECT queue,
+               COUNT(*)::bigint AS depth,
+               COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at))), 0)::bigint AS oldest_age
+        FROM oban_jobs
+        WHERE state IN ('available', 'scheduled', 'retryable', 'executing')
+        GROUP BY queue
+        ORDER BY queue
+        """
+      end
 
     %{rows: rows} = Ecto.Adapters.SQL.query!(Repo, sql, [])
 
@@ -98,17 +111,30 @@ defmodule CourierCMS.Observability do
   defp fresh_workers_sql do
     cutoff = DateTime.add(DateTime.utc_now(), -90, :second)
 
-    {"SELECT COUNT(*)::bigint FROM worker_heartbeats WHERE role IN ('all', 'worker') AND last_seen_at >= $1",
-     [cutoff]}
+    sql =
+      if CourierCMS.ReleaseProfile.local?(),
+        do:
+          "SELECT COUNT(*) FROM worker_heartbeats WHERE role IN ('all', 'worker') AND last_seen_at >= $1",
+        else:
+          "SELECT COUNT(*)::bigint FROM worker_heartbeats WHERE role IN ('all', 'worker') AND last_seen_at >= $1"
+
+    {sql, [cutoff]}
   end
 
   defp failed_items_sql do
-    {"SELECT COUNT(*)::bigint FROM run_items WHERE status = 'failed'", []}
+    cast = if CourierCMS.ReleaseProfile.local?(), do: "", else: "::bigint"
+    {"SELECT COUNT(*)#{cast} FROM run_items WHERE status = 'failed'", []}
   end
 
   defp checkpoint_lag_sql do
-    {"SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_advanced_at))), 0)::bigint FROM checkpoints",
-     []}
+    sql =
+      if CourierCMS.ReleaseProfile.local?() do
+        "SELECT CAST(COALESCE((julianday('now') - julianday(MIN(last_advanced_at))) * 86400, 0) AS INTEGER) FROM checkpoints"
+      else
+        "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_advanced_at))), 0)::bigint FROM checkpoints"
+      end
+
+    {sql, []}
   end
 
   defp scalar({sql, params}) do

@@ -66,13 +66,17 @@ defmodule CourierCMSWeb.UserAuth do
   Will reissue the session token if it is older than the configured age.
   """
   def fetch_current_scope_for_user(conn, _opts) do
-    with {token, conn} <- ensure_user_token(conn),
-         {user, token_inserted_at} <- Accounts.get_user_by_session_token(token) do
-      conn
-      |> assign(:current_scope, Accounts.scope_for_user(user))
-      |> maybe_reissue_user_session_token(user, token_inserted_at)
+    if implicit_local_identity?(get_session(conn, :user_token)) do
+      assign(conn, :current_scope, CourierCMS.LocalIdentity.scope!())
     else
-      nil -> assign(conn, :current_scope, nil)
+      with {token, conn} <- ensure_user_token(conn),
+           {user, token_inserted_at} <- Accounts.get_user_by_session_token(token) do
+        conn
+        |> assign(:current_scope, Accounts.scope_for_user(user))
+        |> maybe_reissue_user_session_token(user, token_inserted_at)
+      else
+        nil -> assign(conn, :current_scope, nil)
+      end
     end
   end
 
@@ -263,13 +267,23 @@ defmodule CourierCMSWeb.UserAuth do
 
   defp mount_current_scope(socket, session) do
     Phoenix.Component.assign_new(socket, :current_scope, fn ->
-      {user, _} =
-        if user_token = session["user_token"] do
-          Accounts.get_user_by_session_token(user_token)
-        end || {nil, nil}
+      if implicit_local_identity?(session["user_token"]) do
+        CourierCMS.LocalIdentity.scope!()
+      else
+        {user, _} =
+          if user_token = session["user_token"] do
+            Accounts.get_user_by_session_token(user_token)
+          end || {nil, nil}
 
-      Accounts.scope_for_user(user)
+        Accounts.scope_for_user(user)
+      end
     end)
+  end
+
+  defp implicit_local_identity?(session_token) do
+    CourierCMS.ReleaseProfile.local?() and
+      not (Application.fetch_env!(:couriercms, :allow_test_authenticated_sessions) and
+             is_binary(session_token))
   end
 
   @doc "Returns the path to redirect to after log in."
@@ -291,6 +305,16 @@ defmodule CourierCMSWeb.UserAuth do
       |> put_flash(:error, "You must log in to access this page.")
       |> maybe_store_return_to()
       |> redirect(to: ~p"/users/log-in")
+      |> halt()
+    end
+  end
+
+  def require_server_profile(conn, _opts) do
+    if CourierCMS.ReleaseProfile.server?() do
+      conn
+    else
+      conn
+      |> redirect(to: ~p"/")
       |> halt()
     end
   end

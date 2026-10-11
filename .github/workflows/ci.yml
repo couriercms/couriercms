@@ -42,6 +42,10 @@ jobs:
   platform:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [server, local]
     services:
       postgres:
         image: postgres:17-alpine
@@ -73,12 +77,36 @@ jobs:
         working-directory: platform
         env:
           MIX_ENV: test
+          COURIERCMS_RELEASE_PROFILE: ${{ matrix.profile }}
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+      - name: Recreate database from the clean baseline
+        run: mix ecto.drop --quiet && mix ecto.create --quiet && mix ecto.migrate --quiet
+        working-directory: platform
+        env:
+          MIX_ENV: test
+          COURIERCMS_RELEASE_PROFILE: ${{ matrix.profile }}
           COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
       - run: mix test
         working-directory: platform
         env:
           MIX_ENV: test
+          COURIERCMS_RELEASE_PROFILE: ${{ matrix.profile }}
           COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+      - run: mix test test/load/planner_load_test.exs --include load
+        working-directory: platform
+        env:
+          MIX_ENV: test
+          COURIERCMS_RELEASE_PROFILE: ${{ matrix.profile }}
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+      - name: Enforce Server performance baseline
+        if: matrix.profile == 'server'
+        run: mix test test/load/server_baseline_test.exs --include benchmark
+        working-directory: platform
+        env:
+          MIX_ENV: test
+          COURIERCMS_RELEASE_PROFILE: server
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+          COURIERCMS_ENFORCE_BASELINE: "true"
 
   sanity-example:
     runs-on: ubuntu-latest
@@ -107,6 +135,120 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: php -l connectors/wordpress/couriercms-connector.php
       - run: sh ./scripts/package-wordpress-connector.sh
+
+  server-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: couriercms
+          POSTGRES_PASSWORD: couriercms_dev
+          POSTGRES_DB: couriercms_release_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U couriercms -d couriercms_release_smoke"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "29.1.1"
+          elixir-version: "1.20.4"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.15.0"
+      - run: sh ./scripts/prepare-extensions.sh
+      - run: mix deps.get --only prod
+        working-directory: platform
+        env:
+          MIX_ENV: prod
+          COURIERCMS_RELEASE_PROFILE: server
+      - run: mix assets.deploy
+        working-directory: platform
+        env:
+          MIX_ENV: prod
+          COURIERCMS_RELEASE_PROFILE: server
+      - run: mix compile --warnings-as-errors
+        working-directory: platform
+        env:
+          MIX_ENV: prod
+          COURIERCMS_RELEASE_PROFILE: server
+      - run: mix release --overwrite
+        working-directory: platform
+        env:
+          MIX_ENV: prod
+          COURIERCMS_RELEASE_PROFILE: server
+      - name: Smoke-test Server release startup
+        working-directory: platform
+        env:
+          DATABASE_URL: ecto://couriercms:couriercms_dev@127.0.0.1/couriercms_release_smoke
+          SECRET_KEY_BASE: release-smoke-secret-key-base-000000000000000000000000000000000000000000000000
+          COURIERCMS_VAULT_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          COURIERCMS_EXTENSIONS_PATH: ${{ github.workspace }}/.local/extensions
+          COURIERCMS_EXTENSION_CACHE_DIR: ${{ runner.temp }}/couriercms-extension-cache
+          COURIERCMS_REQUIRE_WORKER_READINESS: "false"
+          PHX_HOST: localhost
+          PHX_SERVER: "true"
+          PORT: "4101"
+          SMTP_RELAY: localhost
+          SMTP_USERNAME: local
+          SMTP_PASSWORD: local
+        run: |
+          _build/prod/rel/couriercms/bin/migrate
+          _build/prod/rel/couriercms/bin/couriercms daemon
+          trap '_build/prod/rel/couriercms/bin/couriercms stop || true' EXIT
+          for _attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:4101/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          _build/prod/rel/couriercms/bin/couriercms pid || true
+          exit 1
+
+  local-windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "29.1.1"
+          elixir-version: "1.20.4"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.15.0"
+      - run: ./scripts/build-local-release.ps1 -Version 0.1.0-ci
+      - name: Verify and smoke-test packaged Local release
+        shell: pwsh
+        run: |
+          $package = '.tmp/local-release/couriercms-0.1.0-ci-windows-x64'
+          if (Test-Path "$package/releases/COOKIE") { throw 'Build-time release cookie was packaged' }
+          if ((Get-ChildItem "$package/bundled-extensions" -Filter '*.couriercms').Count -ne 2) { throw 'Expected two official Extensions' }
+          if (Get-ChildItem "$package/bundled-extensions" -Filter '*fake*') { throw 'Fake Extension was packaged' }
+          $env:COURIERCMS_LOCAL_DATA_PATH = "${{ runner.temp }}/couriercms-local-smoke"
+          $env:PORT = '4100'
+          # Exercise only the bundled ERTS. The release must not discover the
+          # Elixir/Erlang toolchain installed earlier in this CI job.
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot"
+          & "$package/start-couriercms.ps1" -NoBrowser -StartupTimeoutSeconds 45
+          try {
+            $response = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:4100/health/ready'
+            if ($response.StatusCode -ne 200) { throw 'Local readiness failed' }
+          } finally {
+            & "$package/stop-couriercms.ps1"
+          }
+          $logs = Get-Content "$env:COURIERCMS_LOCAL_DATA_PATH/logs/*.log" -ErrorAction SilentlyContinue
+          if ($logs -match 'Extension package .*: .*rejected|undefined|bad_return') {
+            throw 'An official Extension failed to load in the packaged release'
+          }
+      - name: Verify Local upgrade persistence and repeated restart
+        run: ./scripts/test-local-release-upgrade.ps1 -FromVersion 0.1.0-ci-a -ToVersion 0.1.0-ci-b
 
   containers:
     runs-on: ubuntu-latest
