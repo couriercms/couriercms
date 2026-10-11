@@ -77,10 +77,17 @@ defmodule CourierCMS.Assets.Transfer do
     rescue
       _exception ->
         {:error,
-         AdapterError.new(:invalid_content, "Source Adapter asset stream could not be read")}
+         AdapterError.new(
+           :temporarily_unavailable,
+           "Source Adapter asset stream could not be read",
+           retryable: true
+         )}
     catch
       _kind, _reason ->
-        {:error, AdapterError.new(:invalid_content, "Source Adapter asset stream failed")}
+        {:error,
+         AdapterError.new(:temporarily_unavailable, "Source Adapter asset stream failed",
+           retryable: true
+         )}
     end
   end
 

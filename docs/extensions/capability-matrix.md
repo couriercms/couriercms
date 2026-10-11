@@ -19,16 +19,16 @@ Legend: `Planned`, `Implemented`, `Not adopted`, `Unsupported`, `Unknown`.
 | Publish event | Implemented Connector | Future webhook | Future Connector | Future Connector | Future webhook |
 | Locales | Connection default; plugins deferred | Future | Future | Future | Future |
 | Revisions | Implemented using published `modified_gmt` | Future | Future | Future | Future |
-| Asset handling inside Delivery Item attempt | Implemented featured-image descriptor | Implemented public URL upload | Future | Future | Future |
-| First-class Delivery Asset pipeline | Not adopted | Not adopted | Planned | Planned | Planned |
+| Asset handling inside Delivery Item attempt | Legacy fallback | Legacy public-URL fallback | Future | Future | Future |
+| First-class Delivery Asset pipeline | Implemented authenticated streaming | Implemented image upload and owned receipt | Planned | Planned | Planned |
 | Destination provisioning | N/A as V0 target | Implemented schema package; explicit deployment | Future | Future | Future |
 | Ownership verification | N/A as V0 target | Implemented | Future | Future | Future |
 
 ## Matrix rules
 
 - `Planned` does not permit production use.
-- The platform pipeline and fake Extension implement the complete optional
-  Delivery Asset contract; `Not adopted` means that production Adapter still
-  uses its documented in-item behavior.
+- The platform pipeline, fake Extension, and official WordPress-to-Sanity path
+  implement the optional Delivery Asset contract. Adapters marked `Not adopted`
+  still use their documented in-item behavior.
 - Capability details and limits belong in Adapter-specific documentation once implementation begins.
 - The runtime capability declaration is authoritative for a configured Connection; this matrix is a human overview.

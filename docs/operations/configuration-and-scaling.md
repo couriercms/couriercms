@@ -287,7 +287,8 @@ key.
 
 - Restarting CourierCMS must not duplicate target Delivery Items.
 - Oban jobs may resume or retry; identity and ownership checks make this safe.
-- Operators can replay terminal items after fixing configuration.
+- Operators can replay terminal items after fixing configuration. Retrying a
+  failed Delivery Asset also requeues affected required Delivery Items.
 - A Full Scan rediscovers the complete Route selection but skips unchanged items.
 - Force Full Redelivery rewrites every selected item with its existing stable identity and is the recovery action after a Destination is cleared or rebuilt.
 - Resetting a checkpoint may rediscover content but must remain idempotent.

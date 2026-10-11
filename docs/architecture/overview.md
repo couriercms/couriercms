@@ -237,10 +237,11 @@ Extension architecture. Segmented-network support requires a separate decision.
 14. Progress is published to the UI and terminal failures can raise alerts.
 
 The bounded Content Bundle and independent Delivery Asset execution are
-implemented foundations. The fake Extension validates the full portable path;
-official Adapters must adopt and test the callbacks before advertising it. The
-accepted next execution stage adds platform-invoked target-independent
-Processors and asset-specific operator controls. See
+implemented foundations. The fake Extension validates the full portable path,
+and the official WordPress source and Sanity target implement it for featured
+images. Other Adapters must adopt and test the callbacks before advertising
+them. The accepted next execution stage adds platform-invoked
+target-independent Processors. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
 
 ## Extension boundaries

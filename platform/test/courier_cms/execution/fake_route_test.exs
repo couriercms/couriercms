@@ -390,6 +390,22 @@ defmodule CourierCMS.Execution.FakeRouteTest do
 
     assert Repo.get!(RunItem, item.id).status == :failed
     assert Repo.aggregate(DeliveryAssetBinding, :count) == 0
+
+    assert {:ok, %{asset_job: _job, item_jobs: [_item_job]}} =
+             Execution.retry_run_asset(scope, asset.id)
+
+    assert Repo.get!(RunAsset, asset.id).status == :pending
+    assert Repo.get!(RunItem, item.id).status == :pending
+
+    assert_enqueued(
+      worker: CourierCMS.Execution.AssetWorker,
+      args: %{"run_asset_id" => asset.id}
+    )
+
+    assert_enqueued(
+      worker: CourierCMS.Execution.DeliveryWorker,
+      args: %{"run_item_id" => item.id}
+    )
   end
 
   test "a required Delivery Asset cannot be accepted without its verified binding" do

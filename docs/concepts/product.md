@@ -155,8 +155,9 @@ The current implementation assembles referenced content inside each source
 Adapter and returns it through the bounded Content Bundle contract. When both
 Adapters support the optional asset callbacks, the platform persists,
 transfers, retries, binds, and reconciles Delivery Assets independently before
-delivering dependent items. Current official production Adapters retain their
-documented in-item media behavior until they adopt that contract. Extension
-Processor execution and asset-specific operator controls are accepted next
-capabilities, not claims about the current runtime. See
+delivering dependent items. The official WordPress source and Sanity target
+implement the independent featured-image path; other Adapter combinations may
+still use an Adapter-specific fallback until they adopt the contract.
+Extension Processor execution is an accepted next capability, not a claim about
+the current runtime. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).

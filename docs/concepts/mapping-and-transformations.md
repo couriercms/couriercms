@@ -180,5 +180,5 @@ SDK stream contract, atomic dependency/job persistence, bounded transfer,
 independent retries, required-item gating, target-reference injection, and
 stranded-job reconciliation are implemented. The full path is used only when
 both Adapters advertise its optional callbacks. Official Adapters that have not
-adopted it retain their documented in-item behavior. Asset-specific operator
-controls remain planned.
+adopted it retain their documented in-item behavior. Operators can inspect and
+retry the independent asset work from a Run without loading an unbounded list.

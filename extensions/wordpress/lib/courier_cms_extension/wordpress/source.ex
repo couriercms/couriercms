@@ -171,6 +171,17 @@ defmodule CourierCMSExtension.WordPress.Source do
     end
   end
 
+  @impl true
+  def read_asset(
+        connection,
+        %AssetDescriptor{retrieval: %{"kind" => "url", "url" => url}}
+      ) do
+    client(connection).read_asset(connection, url)
+  end
+
+  def read_asset(_connection, _descriptor),
+    do: {:error, AdapterError.new(:invalid_content, "WordPress asset descriptor is invalid")}
+
   defp enumerate_page(connection, selection, state) do
     params =
       [

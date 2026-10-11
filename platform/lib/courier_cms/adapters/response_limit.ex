@@ -3,6 +3,8 @@ defmodule CourierCMS.Adapters.ResponseLimit do
 
   alias CourierCMS.ExtensionSDK.AdapterError
 
+  def validate({:ok, %Req.Response{body: %Req.Response.Async{}}} = result), do: result
+
   def validate({:ok, %Req.Response{body: body}} = result) do
     limit = Application.fetch_env!(:couriercms, :max_adapter_response_bytes)
 

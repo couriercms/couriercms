@@ -35,4 +35,12 @@ defmodule CourierCMS.Adapters.DefinitionTest do
     assert [%{"target_field" => "projectedTitle"} | _rest] =
              Definition.default_projections("sanity")
   end
+
+  test "official WordPress and Sanity packages expose the independent asset contract" do
+    assert Gateway.source_supports?("wordpress", :read_asset)
+
+    for operation <- [:find_asset, :create_asset, :update_asset] do
+      assert Gateway.target_supports?("sanity", operation)
+    end
+  end
 end

@@ -53,6 +53,33 @@ defmodule CourierCMSWeb.RunLiveTest do
     refute has_element?(view, "#delivery-items td", "102")
   end
 
+  test "loads a bounded Delivery Asset page only when requested", %{conn: conn, scope: scope} do
+    route = route_fixture(scope)
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    item =
+      scope
+      |> Execution.list_run_items(run.id, source_query: "101")
+      |> Map.fetch!(:items)
+      |> List.first()
+
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+
+    {:ok, view, html} = live(conn, ~p"/runs/#{run.id}")
+    assert html =~ "Delivery assets"
+    assert html =~ "Browse delivery assets"
+    refute html =~ ~s(id="run-asset-)
+
+    view
+    |> element("#show-delivery-assets")
+    |> render_click()
+
+    assert has_element?(view, "#delivery-assets")
+    assert length(Regex.scan(~r/<tr id="run-asset-/, render(view))) == 1
+    assert render(view) =~ "delivery-pipeline.jpg"
+  end
+
   defp route_fixture(scope) do
     source = connection_fixture(scope, "Run UI source", "fake_source")
     target = connection_fixture(scope, "Run UI target", "fake_target")

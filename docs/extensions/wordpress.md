@@ -107,10 +107,12 @@ featured_image? {
 }
 ```
 
-The Sanity target asks Sanity's Assets API to fetch each public featured-media
-URL before writing the final Delivery Item. The resulting Sanity asset reference
-is stored with the delivery, so the legacy WordPress URL is not its only asset
-dependency.
+The source Adapter exposes featured media through the first-class Delivery
+Asset contract. CourierCMS streams the media with the same optional WordPress
+Application Password used for source reads, enforces the platform byte and time
+limits, and gives the target Adapter an independently retryable asset. The
+target reference is injected into the final Delivery Item, so the legacy
+WordPress URL is not its only asset dependency.
 
 ## Identity and replay
 

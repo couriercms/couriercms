@@ -39,6 +39,11 @@ defmodule CourierCMS.Execution.Run do
     field :items_failed, :integer, default: 0
     field :items_retrying, :integer, default: 0
     field :items_skipped, :integer, default: 0
+    field :assets_discovered, :integer, default: 0
+    field :assets_succeeded, :integer, default: 0
+    field :assets_failed, :integer, default: 0
+    field :assets_retrying, :integer, default: 0
+    field :assets_skipped, :integer, default: 0
     field :error_category, :string
     field :error_summary, :string
     field :started_at, :utc_datetime_usec
@@ -78,6 +83,11 @@ defmodule CourierCMS.Execution.Run do
       :items_failed,
       :items_retrying,
       :items_skipped,
+      :assets_discovered,
+      :assets_succeeded,
+      :assets_failed,
+      :assets_retrying,
+      :assets_skipped,
       :error_category,
       :error_summary,
       :started_at,
@@ -108,7 +118,12 @@ defmodule CourierCMS.Execution.Run do
         :items_succeeded,
         :items_failed,
         :items_retrying,
-        :items_skipped
+        :items_skipped,
+        :assets_discovered,
+        :assets_succeeded,
+        :assets_failed,
+        :assets_retrying,
+        :assets_skipped
       ],
       changeset,
       &validate_number(&2, &1, greater_than_or_equal_to: 0)

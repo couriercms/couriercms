@@ -126,7 +126,7 @@ defmodule CourierCMSExtension.Sanity.Target do
       "idempotent_delivery" => true,
       "canonical_document_storage" => "json_text",
       "target_projections" => %{"fields" => @projection_fields},
-      "assets" => "featured_image_from_public_url"
+      "assets" => "independent_featured_image"
     }
   end
 
@@ -258,17 +258,64 @@ defmodule CourierCMSExtension.Sanity.Target do
     end
   end
 
+  @impl true
+  def find_asset(connection, %{id: destination_id}, asset_key) do
+    receipt_id = asset_receipt_id(destination_id, asset_key)
+
+    case client(connection).find_asset_receipt(connection, receipt_id) do
+      {:ok, nil} ->
+        {:ok, :not_found}
+
+      {:ok, %{"assetId" => asset_id} = receipt}
+      when is_binary(asset_id) and asset_id != "" ->
+        {:ok, %{target_reference: asset_id, ownership: asset_ownership_from_receipt(receipt)}}
+
+      {:ok, _other} ->
+        {:error, AdapterError.new(:invalid_content, "Sanity returned an invalid asset receipt")}
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def create_asset(connection, asset) do
+    with {:ok, asset_id} <- client(connection).upload_image(connection, asset) do
+      receipt = asset_receipt(asset, asset_id)
+
+      case client(connection).create_document(connection, receipt) do
+        {:ok, _receipt_id} ->
+          {:ok, asset_result(asset_id, asset.ownership)}
+
+        {:error, %AdapterError{category: :target_rejected}} ->
+          recover_asset_create(connection, asset)
+
+        error ->
+          error
+      end
+    end
+  end
+
+  @impl true
+  def update_asset(connection, _target_reference, asset, ownership) do
+    with :ok <- verify_asset_ownership(asset, ownership),
+         {:ok, asset_id} <- client(connection).upload_image(connection, asset),
+         receipt_id <- asset_receipt_id(asset.destination.id, asset.asset_key),
+         fields <- asset_receipt(asset, asset_id) |> Map.drop(["_id", "_type"]),
+         {:ok, ^receipt_id} <- client(connection).patch_document(connection, receipt_id, fields) do
+      {:ok, asset_result(asset_id, asset.ownership)}
+    end
+  end
+
   defp upload_featured_image(connection, %{"featured_image" => descriptor})
        when is_map(descriptor) do
-    case descriptor["source_url"] do
-      url when is_binary(url) and url != "" ->
+    case {descriptor["target_reference"], descriptor["source_url"]} do
+      {asset_id, _url} when is_binary(asset_id) and asset_id != "" ->
+        {:ok, sanity_image(asset_id, descriptor)}
+
+      {_asset_id, url} when is_binary(url) and url != "" ->
         with {:ok, asset_id} <- client(connection).upload_image_from_url(connection, descriptor) do
-          {:ok,
-           compact(%{
-             "_type" => "image",
-             "asset" => %{"_type" => "reference", "_ref" => asset_id},
-             "alt" => descriptor["alt"]
-           })}
+          {:ok, sanity_image(asset_id, descriptor)}
         end
 
       _other ->
@@ -359,6 +406,65 @@ defmodule CourierCMSExtension.Sanity.Target do
     end
   end
 
+  defp recover_asset_create(connection, asset) do
+    case find_asset(connection, asset.destination, asset.asset_key) do
+      {:ok, %{target_reference: asset_id, ownership: ownership}} ->
+        with :ok <- verify_asset_ownership(asset, ownership) do
+          {:ok, asset_result(asset_id, ownership)}
+        end
+
+      _other ->
+        {:error,
+         AdapterError.new(:target_rejected, "Sanity could not create or recover the asset")}
+    end
+  end
+
+  defp asset_receipt(asset, asset_id) do
+    ownership = stringify_keys(asset.ownership)
+
+    %{
+      "_id" => asset_receipt_id(asset.destination.id, asset.asset_key),
+      "_type" => "couriercmsAsset",
+      "couriercmsAssetKey" => asset.asset_key,
+      "installationId" => ownership["installation_id"],
+      "routeId" => ownership["route_id"],
+      "destinationId" => ownership["destination_id"],
+      "asset" => %{"_type" => "reference", "_ref" => asset_id},
+      "filename" => asset.descriptor.filename,
+      "mediaType" => asset.content.media_type,
+      "contentHash" => asset.content.checksum
+    }
+    |> compact()
+  end
+
+  defp asset_ownership_from_receipt(receipt) do
+    %{
+      "installation_id" => receipt["installationId"],
+      "route_id" => receipt["routeId"],
+      "destination_id" => receipt["destinationId"],
+      "couriercms_asset_key" => receipt["couriercmsAssetKey"]
+    }
+  end
+
+  defp verify_asset_ownership(asset, ownership) do
+    if stringify_keys(ownership) == stringify_keys(asset.ownership) do
+      :ok
+    else
+      {:error, AdapterError.new(:ownership_violation, "Sanity asset is not owned by this Route")}
+    end
+  end
+
+  defp asset_result(asset_id, ownership),
+    do: %{target_reference: asset_id, ownership: stringify_keys(ownership)}
+
+  defp sanity_image(asset_id, descriptor) do
+    compact(%{
+      "_type" => "image",
+      "asset" => %{"_type" => "reference", "_ref" => asset_id},
+      "alt" => descriptor["alt"] || get_in(descriptor, ["metadata", "alt"])
+    })
+  end
+
   defp ownership_from_document(document) do
     %{
       "installation_id" => document["installationId"],
@@ -389,6 +495,19 @@ defmodule CourierCMSExtension.Sanity.Target do
 
     "couriercms.#{digest}"
   end
+
+  defp asset_receipt_id(destination_id, asset_key) do
+    digest =
+      :crypto.hash(:sha256, destination_id <> <<0>> <> asset_key)
+      |> Base.url_encode64(padding: false)
+
+    "couriercms.asset.#{digest}"
+  end
+
+  defp stringify_keys(map) when is_map(map),
+    do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
+
+  defp stringify_keys(_value), do: %{}
 
   defp delivery_name(%{value: value, suffix: suffix}) do
     base =

@@ -50,24 +50,30 @@ CourierCMS never deletes a Sanity document.
 
 ## Current asset behavior
 
-When the mapped payload includes a public HTTPS featured-image URL, Sanity's
-from-URL Assets API fetches it and CourierCMS stores the resulting asset reference
-in `featuredImage`. The original descriptor remains in the canonical document.
+The Adapter implements the first-class Delivery Asset contract for featured
+images. CourierCMS streams the source bytes through its bounded transfer layer,
+uploads them to Sanity's image API in an independent asset job, and stores the
+returned native image reference in `featuredImage` before writing the dependent
+Delivery Item. Asset failures and retries are therefore visible independently
+from item failures.
 
-V0 does not fetch assets that require WordPress cookies or authorization
-headers. A failed asset upload fails that Delivery Item visibly and may retry if
-Sanity reports a transient failure.
+Sanity image assets are content-addressed and may be shared. CourierCMS does not
+claim exclusive ownership of the native image document. It creates a
+deterministic read-only `couriercmsAsset` receipt for each Destination asset
+identity. The receipt records Route and Destination ownership and points to the
+native image asset; it is used for safe lookup, replay, and update. CourierCMS
+never deletes either record.
 
-This operation currently occurs inside the parent Delivery Item attempt. The
-platform's first-class Delivery Asset pipeline is available, but the Sanity
-Adapter does not yet advertise its optional callbacks. Adopting that contract
-will give Sanity assets independent jobs, retries, and target bindings without
-changing the Adapter's responsibility to return a usable asset reference.
+The older public-URL upload path remains only as a compatibility fallback for a
+payload that reaches the Adapter without an independently delivered target
+reference. The normal WordPress-to-Sanity path can read protected WordPress
+media with the Connection's Application Password because WordPress streams the
+bytes rather than asking Sanity to fetch the URL.
 
 ## Studio package
 
-The standalone package in `examples/sanity-consumer` (a historical directory
-name) defines the read-only Intake Schema and Studio structure. It is a
+The standalone package in `examples/sanity-consumer` defines the read-only
+Delivery Item and asset-receipt schemas plus the Studio structure. It is a
 target-side integration example, not a CourierCMS runtime component. Schema
 deployment is explicit and separate from
 delivery; Runs never mutate target schema. The implementation stores the

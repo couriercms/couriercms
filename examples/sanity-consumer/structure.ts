@@ -1,5 +1,6 @@
 import type {StructureResolver} from 'sanity/structure'
 import {DocumentTextIcon} from '@sanity/icons/DocumentText'
+import {ImageIcon} from '@sanity/icons/Image'
 
 export const couriercmsStructure: StructureResolver = (S) =>
   S.list()
@@ -21,5 +22,15 @@ export const couriercmsStructure: StructureResolver = (S) =>
           S.documentTypeList('couriercmsDelivery')
             .title('CourierCMS deliveries')
             .defaultOrdering([{field: 'routeId', direction: 'asc'}]),
+        ),
+      S.divider(),
+      S.listItem()
+        .title('Delivered assets')
+        .icon(ImageIcon)
+        .child(
+          S.documentList()
+            .title('Delivered assets')
+            .filter('_type == "couriercmsAsset"')
+            .defaultOrdering([{field: 'filename', direction: 'asc'}]),
         ),
     ])

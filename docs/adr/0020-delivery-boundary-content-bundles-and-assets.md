@@ -101,10 +101,11 @@ First-class Delivery Asset persistence, bounded temporary-file transfer,
 independent jobs and retries, required-dependency gating, target-reference
 injection, binding reuse, and stranded-job reconciliation are implemented.
 The fake Extension exercises the complete contract in both release profiles.
-The current WordPress and Sanity Adapters do not yet advertise the independent
-callbacks, so that production path continues to handle a featured image during
-the parent Delivery Item attempt. Bounded operator views and replay controls for
-asset work remain to be added.
+The official WordPress source and Sanity target also advertise and test the
+independent contract for featured images. WordPress streams source bytes and
+Sanity records a deterministic owned receipt pointing to its content-addressed
+native image. Run pages expose bounded asset views, summary counters, and a
+retry action that also requeues affected required Delivery Items.
 
 ## Consequences
 

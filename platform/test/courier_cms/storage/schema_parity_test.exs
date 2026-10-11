@@ -46,7 +46,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "run_items" =>
       ~w(id run_id route_item_id delivery_key source_item_key locale_key source_revision_key planned_operation status attempt_count error_category error_summary content_hash started_at completed_at source_modified_at source_change_token source_state inserted_at updated_at),
     "runs" =>
-      ~w(id route_id route_revision_id destination_id initiated_by_user_id connector_event_id trigger_kind trigger_metadata status items_discovered items_succeeded items_failed items_retrying items_skipped started_at completed_at cancelled_at error_category error_summary schedule_key planning_cursor planning_page planning_complete source_artifact target_artifact processor_artifacts inserted_at updated_at),
+      ~w(id route_id route_revision_id destination_id initiated_by_user_id connector_event_id trigger_kind trigger_metadata status items_discovered items_succeeded items_failed items_retrying items_skipped assets_discovered assets_succeeded assets_failed assets_retrying assets_skipped started_at completed_at cancelled_at error_category error_summary schedule_key planning_cursor planning_page planning_complete source_artifact target_artifact processor_artifacts inserted_at updated_at),
     "users" => ~w(id email hashed_password confirmed_at inserted_at updated_at),
     "users_tokens" => ~w(id user_id token context sent_to authenticated_at inserted_at),
     "worker_heartbeats" =>
@@ -214,6 +214,11 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "runs.items_failed" => 0,
     "runs.items_retrying" => 0,
     "runs.items_skipped" => 0,
+    "runs.assets_discovered" => 0,
+    "runs.assets_succeeded" => 0,
+    "runs.assets_failed" => 0,
+    "runs.assets_retrying" => 0,
+    "runs.assets_skipped" => 0,
     "runs.planning_page" => 0,
     "runs.planning_complete" => false,
     "runs.processor_artifacts" => :empty_list,
@@ -245,7 +250,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
 
   @integer_columns ~w(
     revision_number contract_version runs_started items_discovered items_succeeded
-    items_failed items_retrying items_skipped planning_page attempt_count slot_number
+    items_failed items_retrying items_skipped assets_discovered assets_succeeded
+    assets_failed assets_retrying assets_skipped planning_page attempt_count slot_number
     request_count
   )
 

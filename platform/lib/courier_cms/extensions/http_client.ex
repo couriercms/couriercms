@@ -14,6 +14,7 @@ defmodule CourierCMS.Extensions.HTTPClient do
   def request(connection, method, options) when method in @methods do
     with {:ok, url} <- fetch_url(options),
          :ok <- validate_url(url),
+         :ok <- validate_stream_mode(options),
          :ok <- OutboundRateLimiter.check(connection) do
       options
       |> put_defaults()
@@ -43,6 +44,20 @@ defmodule CourierCMS.Extensions.HTTPClient do
     end
   end
 
+  defp validate_stream_mode(options) do
+    case {Keyword.get(options, :into), Keyword.get(options, :couriercms_stream)} do
+      {:self, :asset} ->
+        :ok
+
+      {:self, _other} ->
+        {:error,
+         AdapterError.new(:authorization, "Async HTTP streaming is reserved for Delivery Assets")}
+
+      {_other, _mode} ->
+        :ok
+    end
+  end
+
   defp put_defaults(options) do
     receive_timeout =
       case Keyword.get(options, :couriercms_timeout, :standard) do
@@ -57,6 +72,7 @@ defmodule CourierCMS.Extensions.HTTPClient do
 
     options
     |> Keyword.delete(:couriercms_timeout)
+    |> Keyword.delete(:couriercms_stream)
     |> Keyword.put(:retry, false)
     |> Keyword.put(:max_redirects, 0)
     |> Keyword.put(:receive_timeout, receive_timeout)

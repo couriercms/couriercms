@@ -36,6 +36,12 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
 
         "/wp-json/wp/v2/posts/101" ->
           Req.Test.json(conn, fixture)
+
+        "/wp-content/uploads/delivery-pipeline.jpg" ->
+          conn
+          |> Plug.Conn.put_resp_content_type("image/jpeg")
+          |> Plug.Conn.put_resp_header("content-length", "11")
+          |> Plug.Conn.send_resp(200, "image-bytes")
       end
     end)
 
@@ -217,6 +223,61 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
              Source.enumerate(connection, %{"content_type" => "page"}, nil)
 
     assert error.category == :invalid_selection
+  end
+
+  test "streams a featured image through the asset contract", %{connection: connection} do
+    {:ok, %{items: [identity]}} = Source.enumerate(connection, %{}, nil)
+    assert {:ok, bundle} = Source.read_root(connection, identity, %{})
+    assert [descriptor] = bundle.assets
+
+    assert {:ok, content} = Source.read_asset(connection, descriptor)
+    assert content.byte_size == 11
+    assert content.media_type == "image/jpeg"
+    assert content.chunks |> Enum.to_list() |> IO.iodata_to_binary() == "image-bytes"
+  end
+
+  test "uses source credentials only for same-origin assets" do
+    same_origin_stub = {__MODULE__, :same_origin_asset, self()}
+
+    Req.Test.expect(same_origin_stub, fn conn ->
+      expected = "Basic " <> Base.encode64("couriercms-reader:app-password")
+      assert Plug.Conn.get_req_header(conn, "authorization") == [expected]
+      Plug.Conn.send_resp(conn, 200, "protected-image")
+    end)
+
+    connection = %{
+      endpoint: "https://wordpress.example",
+      credentials: %{
+        "username" => "couriercms-reader",
+        "application_password" => "app-password"
+      },
+      settings: %{req_options: [plug: {Req.Test, same_origin_stub}]}
+    }
+
+    descriptor = %CourierCMS.ExtensionSDK.AssetDescriptor{
+      source_key: "501",
+      filename: "protected.jpg",
+      media_type: "image/jpeg",
+      retrieval: %{"kind" => "url", "url" => "https://wordpress.example/protected.jpg"}
+    }
+
+    assert {:ok, content} = Source.read_asset(connection, descriptor)
+    assert content.chunks |> Enum.to_list() |> IO.iodata_to_binary() == "protected-image"
+
+    external_stub = {__MODULE__, :external_asset, self()}
+
+    Req.Test.expect(external_stub, fn conn ->
+      assert Plug.Conn.get_req_header(conn, "authorization") == []
+      Plug.Conn.send_resp(conn, 200, "cdn-image")
+    end)
+
+    external_connection =
+      put_in(connection, [:settings, :req_options], plug: {Req.Test, external_stub})
+
+    external_descriptor = put_in(descriptor.retrieval["url"], "https://cdn.example/protected.jpg")
+
+    assert {:ok, external_content} = Source.read_asset(external_connection, external_descriptor)
+    assert external_content.chunks |> Enum.to_list() |> IO.iodata_to_binary() == "cdn-image"
   end
 
   test "does not bind a changed post to an older discovered revision", %{connection: connection} do

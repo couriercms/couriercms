@@ -1,7 +1,7 @@
 defmodule CourierCMSExtension.WordPress.Client do
   @moduledoc false
 
-  alias CourierCMS.ExtensionSDK.{AdapterError, HTTPClient}
+  alias CourierCMS.ExtensionSDK.{AdapterError, AssetContent, HTTPClient}
 
   @user_agent "CourierCMS/0.1 WordPressAdapter"
 
@@ -41,6 +41,77 @@ defmodule CourierCMSExtension.WordPress.Client do
       error -> error
     end
   end
+
+  def read_asset(connection, url) when is_binary(url) and url != "" do
+    options = [
+      url: url,
+      headers: [{"accept", "*/*"}, {"user-agent", @user_agent}],
+      into: :self,
+      decode_body: false,
+      retry: false,
+      max_redirects: 0,
+      couriercms_timeout: :asset,
+      couriercms_stream: :asset
+    ]
+
+    options =
+      case asset_authentication(connection, url) do
+        nil -> options
+        auth -> Keyword.put(options, :auth, auth)
+      end
+
+    options =
+      case setting(connection, :req_options) do
+        nil -> options
+        req_options when is_list(req_options) -> Keyword.merge(options, req_options)
+      end
+
+    case HTTPClient.request(connection, :get, options) do
+      {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
+        {:ok,
+         %AssetContent{
+           chunks: response.body,
+           byte_size: content_length(response),
+           media_type: media_type(response)
+         }}
+
+      {:ok, %Req.Response{} = response} ->
+        {:error, response_error(response)}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        {:error, transport_error(reason)}
+
+      {:error, %AdapterError{} = error} ->
+        {:error, error}
+
+      {:error, _exception} ->
+        {:error,
+         AdapterError.new(:temporarily_unavailable, "WordPress asset request failed",
+           retryable: true
+         )}
+    end
+  end
+
+  def read_asset(_connection, _url),
+    do: {:error, AdapterError.new(:invalid_content, "WordPress asset URL is invalid")}
+
+  defp asset_authentication(connection, url) do
+    if same_origin?(connection.endpoint, url), do: authentication(connection)
+  end
+
+  defp same_origin?(left, right) do
+    left = URI.parse(left)
+    right = URI.parse(right)
+
+    left.scheme in ["http", "https"] and left.scheme == right.scheme and
+      String.downcase(left.host || "") == String.downcase(right.host || "") and
+      effective_port(left) == effective_port(right)
+  end
+
+  defp effective_port(%URI{port: port}) when is_integer(port), do: port
+  defp effective_port(%URI{scheme: "https"}), do: 443
+  defp effective_port(%URI{scheme: "http"}), do: 80
+  defp effective_port(_uri), do: nil
 
   def resolve_term_ids(connection, resource, slugs) when resource in ["categories", "tags"] do
     slugs
@@ -188,6 +259,33 @@ defmodule CourierCMSExtension.WordPress.Client do
 
       _other ->
         nil
+    end
+  end
+
+  defp content_length(response) do
+    case first_header(response, "content-length") do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {size, ""} when size >= 0 -> size
+          _other -> nil
+        end
+    end
+  end
+
+  defp media_type(response) do
+    case first_header(response, "content-type") do
+      nil -> nil
+      value -> value |> String.split(";", parts: 2) |> List.first() |> String.trim()
+    end
+  end
+
+  defp first_header(response, name) do
+    case Req.Response.get_header(response, name) do
+      [value | _] -> value
+      _other -> nil
     end
   end
 

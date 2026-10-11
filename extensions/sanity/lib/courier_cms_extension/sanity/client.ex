@@ -33,6 +33,13 @@ defmodule CourierCMSExtension.Sanity.Client do
     })
   end
 
+  def find_asset_receipt(connection, receipt_id) do
+    query =
+      ~S|*[_type == "couriercmsAsset" && _id == $receiptId][0]{_id, installationId, routeId, destinationId, couriercmsAssetKey, "assetId": asset._ref}|
+
+    query(connection, query, %{"receiptId" => receipt_id})
+  end
+
   def create_document(connection, document) do
     with {:ok, response} <- mutate(connection, %{"create" => document}),
          {:ok, document_id} <- mutation_document_id(response) do
@@ -64,6 +71,31 @@ defmodule CourierCMSExtension.Sanity.Client do
           sourceUrl: source_url
         ],
         json: %{"url" => source_url, "filename" => descriptor["filename"]},
+        couriercms_timeout: :asset
+      )
+
+    HTTPClient.request(connection, :post, options)
+    |> case do
+      {:ok, %Req.Response{status: status, body: %{"document" => %{"_id" => id}}}}
+      when status in 200..299 ->
+        {:ok, id}
+
+      result ->
+        normalize_response(result)
+    end
+  end
+
+  def upload_image(connection, asset) do
+    options =
+      request_options(connection,
+        url: api_base(connection) <> "/assets/images/#{dataset(connection)}",
+        params: [
+          tag: "couriercms.delivery_asset",
+          filename: asset.descriptor.filename,
+          label: asset.descriptor.metadata["alt"]
+        ],
+        headers: [{"content-type", asset.content.media_type || "application/octet-stream"}],
+        body: asset.content.chunks,
         couriercms_timeout: :asset
       )
 
@@ -133,17 +165,21 @@ defmodule CourierCMSExtension.Sanity.Client do
     do: {:error, AdapterError.new(:invalid_content, "Sanity returned an invalid mutation result")}
 
   defp request_options(connection, options) do
+    base_headers = [
+      {"accept", "application/json"},
+      {"authorization", "Bearer #{token(connection)}"},
+      {"user-agent", @user_agent}
+    ]
+
+    custom_headers = Keyword.get(options, :headers, [])
+
     base = [
-      headers: [
-        {"accept", "application/json"},
-        {"authorization", "Bearer #{token(connection)}"},
-        {"user-agent", @user_agent}
-      ],
+      headers: base_headers ++ custom_headers,
       retry: false,
       max_redirects: 0
     ]
 
-    options = Keyword.merge(base, options)
+    options = Keyword.merge(base, Keyword.delete(options, :headers))
 
     case setting(connection, :req_options) do
       req_options when is_list(req_options) -> Keyword.merge(options, req_options)

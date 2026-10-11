@@ -231,8 +231,9 @@ The persisted entities are `delivery_assets`, `run_assets`,
 persist logical assets, item dependencies, and independent jobs atomically and
 idempotently. Asset delivery has its own retries, target binding, required-item
 gate, reference injection, and stranded-job reconciliation. The existing Run
-summary does not yet expose dedicated asset counters, and asset-specific
-operator views and replay controls remain future UI work.
+summary exposes authoritative Delivery Asset counters. Operators can open a
+bounded, filtered asset page and retry a failed asset together with affected
+required Delivery Items.
 
 ## Value objects
 

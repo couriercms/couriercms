@@ -226,8 +226,9 @@ contract end to end. The platform materializes a bounded verified stream,
 persists dependencies and jobs atomically, retries asset work independently,
 reconciles stranded jobs, and injects the returned reference before item
 delivery. An official Adapter must pass the relevant contract and integration
-tests before advertising these callbacks. WordPress and Sanity have not yet
-adopted them and retain their documented in-item featured-image behavior.
+tests before advertising these callbacks. The official WordPress source and
+Sanity target implement the contract for featured images; Sanity retains a
+documented public-URL fallback when no independent target reference is present.
 
 ## Versioning
 

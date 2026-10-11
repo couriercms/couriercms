@@ -139,10 +139,9 @@ stream through bounded controlled temporary storage, verifies declared size and
 checksum, retries independently, reuses verified bindings, gates dependent
 items, injects target references at declared payload paths, and reconciles
 stranded work. These semantics activate only when both configured Adapters
-advertise the optional asset callbacks. The current WordPress-to-Sanity path
-does not yet opt in and therefore resolves its supported featured image during
-the parent Delivery Item attempt. Asset-specific operator views and manual
-replay controls remain future UI work.
+advertise the optional asset callbacks. The official WordPress-to-Sanity path
+uses them for featured images. Run pages expose asset summary counters, bounded
+filtered details, safe errors, target references, and retry controls.
 
 ## Validation and hashing
 

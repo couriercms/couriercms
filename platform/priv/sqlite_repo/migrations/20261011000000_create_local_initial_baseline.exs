@@ -291,6 +291,11 @@ defmodule CourierCMS.Repo.Migrations.CreateLocalInitialBaseline do
       add :items_failed, :integer, null: false, default: 0
       add :items_retrying, :integer, null: false, default: 0
       add :items_skipped, :integer, null: false, default: 0
+      add :assets_discovered, :integer, null: false, default: 0
+      add :assets_succeeded, :integer, null: false, default: 0
+      add :assets_failed, :integer, null: false, default: 0
+      add :assets_retrying, :integer, null: false, default: 0
+      add :assets_skipped, :integer, null: false, default: 0
       add :started_at, :utc_datetime_usec
       add :completed_at, :utc_datetime_usec
       add :cancelled_at, :utc_datetime_usec

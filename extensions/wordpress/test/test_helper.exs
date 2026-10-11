@@ -5,6 +5,7 @@ defmodule CourierCMSExtension.WordPress.TestHTTPClient do
   def request(_connection, method, options) do
     options
     |> Keyword.delete(:couriercms_timeout)
+    |> Keyword.delete(:couriercms_stream)
     |> Keyword.put(:method, method)
     |> Req.request()
   end

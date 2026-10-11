@@ -24,6 +24,7 @@ defmodule CourierCMS.Execution do
     ConnectionLimiter,
     DeliveryLock,
     DeliveryWorker,
+    AssetWorker,
     JobArgs,
     PlanRunWorker,
     Retry,
@@ -44,6 +45,16 @@ defmodule CourierCMS.Execution do
   @checkpoint_overlap_seconds 120
   @run_item_page_size 50
   @run_item_statuses [:pending, :processing, :succeeded, :retrying, :failed, :skipped, :cancelled]
+  @run_asset_page_size 50
+  @run_asset_statuses [
+    :pending,
+    :processing,
+    :succeeded,
+    :retrying,
+    :failed,
+    :skipped,
+    :cancelled
+  ]
 
   def list_runs(%Scope{} = scope, limit \\ 50) do
     Run
@@ -168,6 +179,82 @@ defmodule CourierCMS.Execution do
       where(query, [item], fragment("lower(?) LIKE lower(?)", item.source_item_key, ^pattern))
     else
       where(query, [item], ilike(item.source_item_key, ^pattern))
+    end
+  end
+
+  @doc "Returns one bounded, workspace-scoped page of Delivery Assets for a Run."
+  def list_run_assets(%Scope{} = scope, run_id, opts \\ []) do
+    page = opts |> Keyword.get(:page, 1) |> max(1)
+    page_size = opts |> Keyword.get(:page_size, @run_asset_page_size) |> min(100) |> max(1)
+    status = Keyword.get(opts, :status)
+    source_query = opts |> Keyword.get(:source_query, "") |> String.trim()
+
+    query =
+      RunAsset
+      |> join(:inner, [asset], run in assoc(asset, :run))
+      |> join(:inner, [_asset, run], route in assoc(run, :route))
+      |> join(:inner, [asset, _run, _route], delivery_asset in assoc(asset, :delivery_asset))
+      |> join(:left, [asset, run, _route, delivery_asset], binding in DeliveryAssetBinding,
+        on:
+          binding.delivery_asset_id == delivery_asset.id and
+            binding.destination_id == run.destination_id
+      )
+      |> where(
+        [asset, _run, route, _delivery_asset, _binding],
+        asset.run_id == ^run_id and route.workspace_id == ^scope.workspace.id
+      )
+      |> maybe_filter_run_asset_status(status)
+      |> maybe_filter_run_asset_source(source_query)
+
+    total_count = Repo.aggregate(query, :count, :id)
+    total_pages = max(Integer.ceil_div(total_count, page_size), 1)
+    page = min(page, total_pages)
+
+    items =
+      query
+      |> order_by([asset], asc: asset.inserted_at, asc: asset.id)
+      |> limit(^page_size)
+      |> offset(^((page - 1) * page_size))
+      |> select([asset, _run, _route, delivery_asset, binding], %{
+        run_asset: asset,
+        delivery_asset: delivery_asset,
+        binding: binding
+      })
+      |> Repo.all()
+
+    %{
+      items: items,
+      page: page,
+      page_size: page_size,
+      total_count: total_count,
+      total_pages: total_pages
+    }
+  end
+
+  defp maybe_filter_run_asset_status(query, status) when status in @run_asset_statuses,
+    do: where(query, [asset], asset.status == ^status)
+
+  defp maybe_filter_run_asset_status(query, _status), do: query
+
+  defp maybe_filter_run_asset_source(query, ""), do: query
+
+  defp maybe_filter_run_asset_source(query, source_query) do
+    pattern = "%#{source_query}%"
+
+    if CourierCMS.ReleaseProfile.local?() do
+      where(
+        query,
+        [_asset, _run, _route, delivery_asset],
+        fragment("lower(?) LIKE lower(?)", delivery_asset.source_asset_key, ^pattern) or
+          fragment("lower(?) LIKE lower(?)", delivery_asset.filename, ^pattern)
+      )
+    else
+      where(
+        query,
+        [_asset, _run, _route, delivery_asset],
+        ilike(delivery_asset.source_asset_key, ^pattern) or
+          ilike(delivery_asset.filename, ^pattern)
+      )
     end
   end
 
@@ -719,6 +806,16 @@ defmodule CourierCMS.Execution do
     end
   end
 
+  def retry_run_asset(%Scope{} = scope, run_asset_id) do
+    with :ok <- Accounts.authorize(scope, [:owner, :admin, :operator]),
+         %RunAsset{} = run_asset <- scoped_run_asset(scope, run_asset_id) do
+      do_retry_run_asset(scope, run_asset)
+    else
+      nil -> {:error, :not_found}
+      error -> error
+    end
+  end
+
   def cancel_run(%Scope{} = scope, run_id) do
     with :ok <- Accounts.authorize(scope, [:owner, :admin, :operator]),
          %Run{} = run <- scoped_run(scope, run_id) do
@@ -780,25 +877,30 @@ defmodule CourierCMS.Execution do
 
   defp do_retry_run_item(scope, run_item) do
     if run_item.status in [:failed, :retrying] do
-      changeset =
-        RunItem.changeset(run_item, %{
+      Repo.transaction(fn ->
+        current =
+          RunItem
+          |> where([item], item.id == ^run_item.id)
+          |> Storage.lock_for_update()
+          |> Repo.one!()
+
+        if current.status not in [:failed, :retrying], do: Repo.rollback(:not_retryable)
+
+        reset_required_assets_for_item(current.id)
+
+        current
+        |> RunItem.changeset(%{
           status: :pending,
           error_category: nil,
           error_summary: nil,
           completed_at: nil
         })
+        |> Repo.update!()
 
-      Ecto.Multi.new()
-      |> Ecto.Multi.update(:run_item, changeset)
-      |> Oban.insert(
-        :job,
-        DeliveryWorker.new(JobArgs.put(%{"run_item_id" => run_item.id}),
-          max_attempts: Application.fetch_env!(:couriercms, :delivery_max_attempts)
-        )
-      )
-      |> Repo.transaction()
+        insert_delivery_job!(current.id)
+      end)
       |> case do
-        {:ok, %{job: job}} ->
+        {:ok, job} ->
           Workspaces.audit(scope, "run_item.retried", "run_item", run_item.id)
           reconcile_run(run_item.run_id)
           broadcast(run_item.run_id)
@@ -812,12 +914,137 @@ defmodule CourierCMS.Execution do
     end
   end
 
+  defp do_retry_run_asset(scope, run_asset) do
+    if run_asset.status in [:failed, :retrying] do
+      Repo.transaction(fn ->
+        current =
+          RunAsset
+          |> where([asset], asset.id == ^run_asset.id)
+          |> Storage.lock_for_update()
+          |> Repo.one!()
+
+        if current.status not in [:failed, :retrying], do: Repo.rollback(:not_retryable)
+
+        current
+        |> RunAsset.changeset(%{
+          status: :pending,
+          attempt_count: 0,
+          error_category: nil,
+          error_summary: nil,
+          completed_at: nil
+        })
+        |> Repo.update!()
+
+        asset_job = insert_asset_job!(current.id)
+        item_jobs = reset_required_items_for_asset(current.id)
+        %{asset_job: asset_job, item_jobs: item_jobs}
+      end)
+      |> case do
+        {:ok, jobs} ->
+          Workspaces.audit(scope, "run_asset.retried", "run_asset", run_asset.id)
+          reconcile_run(run_asset.run_id)
+          broadcast(run_asset.run_id)
+          {:ok, jobs}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:error, :not_retryable}
+    end
+  end
+
+  defp reset_required_assets_for_item(run_item_id) do
+    RunAsset
+    |> join(:inner, [asset], dependency in CourierCMS.Assets.RunItemAsset,
+      on: dependency.run_asset_id == asset.id
+    )
+    |> where(
+      [asset, dependency],
+      dependency.run_item_id == ^run_item_id and dependency.required == true and
+        asset.status == :failed
+    )
+    |> order_by([asset], asc: asset.id)
+    |> Storage.lock_for_update()
+    |> Repo.all()
+    |> Enum.map(fn asset ->
+      asset
+      |> RunAsset.changeset(%{
+        status: :pending,
+        attempt_count: 0,
+        error_category: nil,
+        error_summary: nil,
+        completed_at: nil
+      })
+      |> Repo.update!()
+
+      insert_asset_job!(asset.id)
+    end)
+  end
+
+  defp reset_required_items_for_asset(run_asset_id) do
+    RunItem
+    |> join(:inner, [item], dependency in CourierCMS.Assets.RunItemAsset,
+      on: dependency.run_item_id == item.id
+    )
+    |> where(
+      [item, dependency],
+      dependency.run_asset_id == ^run_asset_id and dependency.required == true and
+        item.status == :failed
+    )
+    |> order_by([item], asc: item.id)
+    |> Storage.lock_for_update()
+    |> Repo.all()
+    |> Enum.map(fn item ->
+      item
+      |> RunItem.changeset(%{
+        status: :pending,
+        error_category: nil,
+        error_summary: nil,
+        completed_at: nil
+      })
+      |> Repo.update!()
+
+      insert_delivery_job!(item.id)
+    end)
+  end
+
+  defp insert_asset_job!(run_asset_id) do
+    AssetWorker.new(JobArgs.put(%{"run_asset_id" => run_asset_id}),
+      max_attempts: Application.fetch_env!(:couriercms, :asset_delivery_max_attempts)
+    )
+    |> insert_oban_job!()
+  end
+
+  defp insert_delivery_job!(run_item_id) do
+    DeliveryWorker.new(JobArgs.put(%{"run_item_id" => run_item_id}),
+      max_attempts: Application.fetch_env!(:couriercms, :delivery_max_attempts)
+    )
+    |> insert_oban_job!()
+  end
+
+  defp insert_oban_job!(changeset) do
+    case Oban.insert(changeset) do
+      {:ok, job} -> job
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp scoped_run_item(scope, id) do
     RunItem
     |> join(:inner, [item], run in assoc(item, :run))
     |> join(:inner, [_item, run], route in assoc(run, :route))
     |> where([item, _run, route], item.id == ^id and route.workspace_id == ^scope.workspace.id)
     |> select([item, _run, _route], item)
+    |> Repo.one()
+  end
+
+  defp scoped_run_asset(scope, id) do
+    RunAsset
+    |> join(:inner, [asset], run in assoc(asset, :run))
+    |> join(:inner, [_asset, run], route in assoc(run, :route))
+    |> where([asset, _run, route], asset.id == ^id and route.workspace_id == ^scope.workspace.id)
+    |> select([asset, _run, _route], asset)
     |> Repo.one()
   end
 
@@ -912,6 +1139,7 @@ defmodule CourierCMS.Execution do
   defp prepare_bundle_assets(run_item, source, target, %ContentBundle{} = bundle) do
     if asset_pipeline_supported?(source, target) do
       with {:ok, _run_assets} <- Assets.plan_dependencies(run_item, bundle.assets) do
+        reconcile_run(run_item.run_id)
         resolve_bundle_assets(run_item, bundle)
       end
     else
@@ -1450,6 +1678,7 @@ defmodule CourierCMS.Execution do
       error_summary: nil
     })
 
+    reconcile_run(run_asset.run_id)
     broadcast(run_asset.run_id)
     :ok
   end
@@ -1468,6 +1697,7 @@ defmodule CourierCMS.Execution do
       |> Repo.update!()
     end
 
+    reconcile_run(run_asset.run_id)
     broadcast(run_asset.run_id)
   end
 
@@ -1525,6 +1755,15 @@ defmodule CourierCMS.Execution do
           )
           |> Map.new()
 
+        asset_counts =
+          Repo.all(
+            from asset in RunAsset,
+              where: asset.run_id == ^run_id,
+              group_by: asset.status,
+              select: {asset.status, count(asset.id)}
+          )
+          |> Map.new()
+
         pending =
           Enum.sum(
             for status <- [:pending, :processing, :retrying], do: Map.get(counts, status, 0)
@@ -1552,11 +1791,17 @@ defmodule CourierCMS.Execution do
           items_failed: failed,
           items_retrying: Map.get(counts, :retrying, 0),
           items_skipped: skipped,
+          assets_discovered: asset_counts |> Map.values() |> Enum.sum(),
+          assets_succeeded: Map.get(asset_counts, :succeeded, 0),
+          assets_failed: Map.get(asset_counts, :failed, 0),
+          assets_retrying: Map.get(asset_counts, :retrying, 0),
+          assets_skipped: Map.get(asset_counts, :skipped, 0),
           completed_at:
-            if(!planning? && pending == 0 && status != :cancelled,
-              do: run.completed_at || DateTime.utc_now(),
-              else: run.completed_at
-            )
+            cond do
+              planning? or pending > 0 -> nil
+              status == :cancelled -> run.completed_at
+              true -> run.completed_at || DateTime.utc_now()
+            end
         })
       end)
 
