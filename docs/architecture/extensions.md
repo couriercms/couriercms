@@ -21,7 +21,12 @@ The first implementation intentionally supports:
 
 It intentionally does not support hot reload, multiple active versions,
 runtime compilation of source files, automatic cluster distribution, a public
-marketplace, Ports, sidecars, or a language-neutral extension protocol.
+marketplace, or a language-neutral extension protocol. An Extension is still
+ordinary trusted OTP code: when a demonstrated capability needs Rust or
+another runtime, it may communicate with an explicitly deployed helper through
+a supervised Erlang Port or another deliberate integration boundary. The V0
+package contract does not bundle, install, distribute, supervise, or sandbox
+such external helpers for the Extension author.
 
 See [ADR-0015](../adr/0015-native-otp-extensions.md).
 
@@ -122,17 +127,24 @@ See [Extension management](../operations/extension-management.md).
 
 ## Trust and dependency boundary
 
-Installing an Extension is equivalent to installing server application code.
-Only owners/administrators may do it, and packages come from a trusted source.
-An in-VM Extension is not sandboxed: it can crash schedulers, inspect process
-state, and call any dependency available in the VM. The package gate and
+Installing an Extension is equivalent to installing a WordPress plugin or
+server application code. Only owners/administrators may do it, and packages
+come from a trusted source. An in-VM Extension is not sandboxed: as ordinary
+OTP code it can inspect process state, call Erlang/Elixir modules available to
+the VM, open network connections, access operating-system resources granted to
+the CourierCMS process, or harm VM availability. The SDK describes the
+supported product contract; it is not a security sandbox. The package gate and
 operational policy are therefore security boundaries, not cosmetic checks.
 
 Extensions must depend on the CourierCMS Extension SDK and an approved shared
 dependency set. They must not bundle conflicting versions of core libraries.
-Native libraries, untrusted customer code, scheduler-blocking work, or
-conflicting dependency requirements need a separate architecture decision; the
-initial Extension system does not solve them with Ports.
+Extensions should use the SDK HTTP and Adapter contracts for normal CMS work.
+Native libraries, untrusted customer code, scheduler-blocking work, bundled
+helper executables, or conflicting dependency requirements need an explicit
+design and deployment review. A trusted Extension may coordinate with a
+separately deployed Rust or other-language process through a supervised Port,
+but that process remains part of the operator's trusted deployment and is not
+managed by the current `.couriercms` package lifecycle.
 
 Extensions receive configuration and credentials through gateway callback
 arguments. They do not receive direct PostgreSQL access, the vault root key, or
@@ -188,5 +200,8 @@ without changing delivery semantics:
 8. [complete] validate, register, invoke, and record bounded Processor
    components through the Extension Gateway.
 
-External runtimes can be considered later only for a demonstrated requirement
-and require a new ADR. They are not a prerequisite for extensible CMS delivery.
+External runtimes are not a prerequisite for extensible CMS delivery. When a
+demonstrated capability requires one, document its executable provenance,
+deployment, supervision, resource limits, failure behavior, upgrade
+compatibility, and Local/Server support before treating it as an official
+Extension dependency.

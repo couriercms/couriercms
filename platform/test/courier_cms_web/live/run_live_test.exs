@@ -16,6 +16,7 @@ defmodule CourierCMSWeb.RunLiveTest do
     {:ok, view, html} = live(conn, ~p"/runs/#{run.id}")
 
     assert html =~ "Browse delivery items"
+    assert html =~ "Reconcile jobs"
     refute html =~ ~s(id="run-item-)
 
     view
@@ -78,6 +79,15 @@ defmodule CourierCMSWeb.RunLiveTest do
     assert has_element?(view, "#delivery-assets")
     assert length(Regex.scan(~r/<tr id="run-asset-/, render(view))) == 1
     assert render(view) =~ "delivery-pipeline.jpg"
+    assert has_element?(view, "#delivery-assets summary", "1 item")
+    assert has_element?(view, "#delivery-assets li", "101")
+
+    view
+    |> element("#delivery-assets a[phx-value-source=\"101\"]")
+    |> render_click()
+
+    assert has_element?(view, "#delivery-items")
+    assert length(Regex.scan(~r/<tr id="run-item-/, render(view))) == 1
   end
 
   test "shows durable Processor diagnostics with the bounded item page", %{

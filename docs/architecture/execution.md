@@ -155,8 +155,15 @@ asset dependencies and jobs atomically, delivers and retries each asset
 independently, and holds the dependent item until every required asset has a
 usable target reference. A terminal required-asset failure fails the item
 visibly. Stranded asset jobs are reconciled using the same durable-state
-principle as item jobs. Adapters that have not adopted the callbacks retain
-their existing in-item asset behavior.
+principle as item jobs. An operator may also request immediate reconciliation
+from an active Run page. That workspace-scoped action restores missing planner,
+Delivery Item, and Delivery Asset jobs without duplicating active work or
+bypassing retry and ownership rules.
+
+Adapters that have not adopted the asset callbacks do not participate in this
+first-class asset pipeline. Their ordinary content fields remain opaque
+payload data; CourierCMS does not treat an Adapter-specific, in-item side
+effect as reliable Delivery Asset success.
 
 ## Concurrency and ordering
 

@@ -262,8 +262,11 @@ and calls the validated module directly.
 
 CMS Connectors remain separately installed CMS-native components. Extensions
 provide declarative definitions rather than injecting LiveView, JavaScript,
-database migrations, or arbitrary executable Route steps. Ports, sidecars,
-remote workers, and a language-neutral protocol are not part of this design.
+database migrations, or arbitrary executable Route steps. CourierCMS does not
+provide a platform-managed Port, sidecar, remote-worker, or language-neutral
+Extension protocol. A trusted OTP Extension may coordinate with a separately
+deployed Rust or other-language helper through a supervised Port when needed,
+but the current package lifecycle does not install, sandbox, or operate it.
 See [Extension architecture](extensions.md) and
 [ADR-0015](../adr/0015-native-otp-extensions.md).
 

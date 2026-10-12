@@ -267,6 +267,28 @@ fingerprint, and a content-free component artifact list. Fresh `all`, `web`, and
 enforcement is enabled, emits `couriercms_extension_mismatched_nodes`, and is shown
 on System > Extensions. Adapter credentials and content are never included.
 
+## Delivery Asset storage and limits
+
+CourierCMS materializes one bounded source stream in platform-controlled
+temporary storage for each active Delivery Asset attempt. Configure
+`COURIERCMS_MAX_ASSET_BYTES` as the hard per-asset limit and
+`COURIERCMS_ASSET_TEMP_PATH` when the default operating-system temporary
+location does not have sufficient protected space. The directory may contain
+sensitive unpublished content and must be writable only by the CourierCMS
+operating-system identity.
+
+Temporary asset files are attempt-scoped and removed after success, rejected
+content, source interruption, or target failure. They are transport buffers,
+not backups, and must not be copied with the database. After an ungraceful
+machine or VM termination, operators may remove remnants only while CourierCMS
+is stopped. Allow enough free space for the configured asset concurrency times
+the maximum expected asset size, plus normal operating-system headroom.
+
+Asset metadata, ownership evidence, checksums, Run history, and target
+references are stored in the database and follow normal database backup and
+retention procedures. Source bytes and target-native assets are not included in
+a CourierCMS database backup.
+
 ## Retention and key rotation
 
 History retention is off by default. Enable `COURIERCMS_RETENTION_ENABLED=true` and

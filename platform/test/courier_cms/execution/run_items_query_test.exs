@@ -61,7 +61,15 @@ defmodule CourierCMS.Execution.RunItemsQueryTest do
     page = Execution.list_run_assets(scope, run.id, page_size: 1)
     assert page.total_count == 1
     assert page.page_size == 1
-    assert [%{delivery_asset: %{source_asset_key: "501"}, binding: nil}] = page.items
+
+    assert [
+             %{
+               delivery_asset: %{source_asset_key: "501"},
+               binding: nil,
+               dependent_item_count: 1,
+               dependent_items: [%{source_item_key: "101", field_path: "fields.featured_image"}]
+             }
+           ] = page.items
 
     filtered =
       Execution.list_run_assets(scope, run.id,

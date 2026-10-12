@@ -52,12 +52,29 @@ defmodule CourierCMS.Execution.ReconcileWorker do
     end
   end
 
-  defp reconcile_assets(cutoff) do
+  @doc "Immediately repairs missing execution jobs for one Run without waiting for the stale cutoff."
+  def reconcile_run(run_id) when is_binary(run_id) do
+    cutoff = DateTime.add(DateTime.utc_now(), 1, :second)
+
+    result = %{
+      assets: reconcile_assets(cutoff, run_id),
+      items: reconcile_items(cutoff, run_id),
+      planners: reconcile_planners(cutoff, run_id)
+    }
+
+    CourierCMS.Execution.reconcile_run(run_id)
+    result
+  end
+
+  defp reconcile_assets(cutoff), do: reconcile_assets(cutoff, nil)
+
+  defp reconcile_assets(cutoff, run_id) do
     RunAsset
     |> where(
       [asset],
       asset.status in [:pending, :processing, :retrying] and asset.updated_at < ^cutoff
     )
+    |> maybe_for_run(run_id)
     |> order_by([asset], asc: asset.updated_at)
     |> limit(500)
     |> Repo.all()
@@ -122,12 +139,15 @@ defmodule CourierCMS.Execution.ReconcileWorker do
     end
   end
 
-  defp reconcile_items(cutoff) do
+  defp reconcile_items(cutoff), do: reconcile_items(cutoff, nil)
+
+  defp reconcile_items(cutoff, run_id) do
     RunItem
     |> where(
       [item],
       item.status in [:pending, :processing, :retrying] and item.updated_at < ^cutoff
     )
+    |> maybe_for_run(run_id)
     |> order_by([item], asc: item.updated_at)
     |> limit(500)
     |> Repo.all()
@@ -163,9 +183,12 @@ defmodule CourierCMS.Execution.ReconcileWorker do
     end
   end
 
-  defp reconcile_planners(cutoff) do
+  defp reconcile_planners(cutoff), do: reconcile_planners(cutoff, nil)
+
+  defp reconcile_planners(cutoff, run_id) do
     Run
     |> where([run], run.status in [:queued, :planning] and run.updated_at < ^cutoff)
+    |> maybe_for_planner_run(run_id)
     |> order_by([run], asc: run.updated_at)
     |> limit(100)
     |> Repo.all()
@@ -198,4 +221,10 @@ defmodule CourierCMS.Execution.ReconcileWorker do
     )
     |> Repo.exists?()
   end
+
+  defp maybe_for_run(query, nil), do: query
+  defp maybe_for_run(query, run_id), do: where(query, [record], record.run_id == ^run_id)
+
+  defp maybe_for_planner_run(query, nil), do: query
+  defp maybe_for_planner_run(query, run_id), do: where(query, [run], run.id == ^run_id)
 end

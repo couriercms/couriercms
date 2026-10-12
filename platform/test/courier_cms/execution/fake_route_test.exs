@@ -663,6 +663,138 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     assert Repo.get!(RunItem, item.id).status == :failed
   end
 
+  test "multiple Delivery Items share one Route-scoped asset and one target binding" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    shared_image = %{
+      "source_id" => "501",
+      "filename" => "delivery-pipeline.jpg",
+      "media_type" => "image/jpeg",
+      "alt" => "A shared delivery pipeline"
+    }
+
+    route.source_connection
+    |> Ecto.Changeset.change(settings: %{"featured_image_overrides" => %{"102" => shared_image}})
+    |> Repo.update!()
+
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    for item <- items(run.id) do
+      assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+    end
+
+    assert Repo.aggregate(DeliveryAsset, :count) == 1
+    assert Repo.aggregate(RunAsset, :count) == 1
+    assert Repo.aggregate(RunItemAsset, :count) == 2
+
+    process_assets(run.id)
+
+    Enum.each(items(run.id), &process_item_with_retry/1)
+
+    completed = Execution.get_run!(scope, run.id)
+    assert completed.status == :succeeded
+    assert completed.assets_succeeded == 1
+    assert completed.items_succeeded == 2
+    assert Repo.aggregate(DeliveryAssetBinding, :count) == 1
+  end
+
+  test "changed asset bytes at the same logical source identity update the target asset" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert {:ok, first_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(first_run.id)
+    process_items_with_retry(first_run.id)
+
+    first_binding = Repo.one!(DeliveryAssetBinding)
+    first_hash = first_binding.last_content_hash
+
+    route.source_connection
+    |> Ecto.Changeset.change(
+      settings: %{
+        "revision_overrides" => %{"101" => "8"},
+        "asset_content_versions" => %{"501" => "v2"}
+      }
+    )
+    |> Repo.update!()
+
+    assert {:ok, second_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(second_run.id)
+    process_items_with_retry(second_run.id)
+
+    second_asset = Repo.get_by!(RunAsset, run_id: second_run.id)
+    second_binding = Repo.get!(DeliveryAssetBinding, first_binding.id)
+
+    assert second_asset.status == :succeeded
+    assert second_asset.planned_operation == "update"
+    refute second_binding.last_content_hash == first_hash
+
+    stored =
+      Store.fetch_asset(
+        route.target_connection_id,
+        route.current_destination_id,
+        second_asset.asset_key
+      )
+
+    assert stored.bytes == "fake-asset:501:original:v2"
+  end
+
+  test "asset update refuses target ownership belonging to another Route" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+
+    assert {:ok, first_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(first_run.id)
+    process_items_with_retry(first_run.id)
+
+    first_asset = Repo.get_by!(RunAsset, run_id: first_run.id)
+
+    stored =
+      Store.fetch_asset(
+        route.target_connection_id,
+        route.current_destination_id,
+        first_asset.asset_key
+      )
+
+    tampered = put_in(stored, [:ownership, "route_id"], Ecto.UUID.generate())
+
+    assert :ok =
+             Store.replace_asset(
+               route.target_connection_id,
+               route.current_destination_id,
+               first_asset.asset_key,
+               stored.target_reference,
+               tampered
+             )
+
+    route.source_connection
+    |> Ecto.Changeset.change(
+      settings: %{
+        "revision_overrides" => %{"101" => "8"},
+        "asset_content_versions" => %{"501" => "v2"}
+      }
+    )
+    |> Repo.update!()
+
+    assert {:ok, second_run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(second_run.id)
+
+    item = Enum.find(items(second_run.id), &(&1.source_item_key == "101"))
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+
+    second_asset = Repo.get_by!(RunAsset, run_id: second_run.id)
+
+    assert {:discard, "Target asset ownership metadata does not match"} =
+             Execution.process_run_asset(second_asset.id, 1, 1)
+
+    assert Repo.get!(RunAsset, second_asset.id).status == :failed
+
+    assert Repo.get!(DeliveryAssetBinding, Repo.one!(DeliveryAssetBinding).id).last_content_hash ==
+             first_asset.content_hash
+  end
+
   test "asset discovery rolls back when its Oban job cannot be inserted" do
     scope = CourierCMS.AccountsFixtures.user_scope_fixture()
     route = route_fixture(scope)

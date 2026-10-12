@@ -58,33 +58,6 @@ defmodule CourierCMSExtension.Sanity.Client do
     end
   end
 
-  def upload_image_from_url(connection, descriptor) do
-    source_url = descriptor["source_url"]
-
-    options =
-      request_options(connection,
-        url: api_base(connection) <> "/assets/images/#{dataset(connection)}/from-url",
-        params: [
-          tag: "couriercms.delivery",
-          sourceName: "CourierCMS",
-          sourceId: descriptor["source_id"],
-          sourceUrl: source_url
-        ],
-        json: %{"url" => source_url, "filename" => descriptor["filename"]},
-        couriercms_timeout: :asset
-      )
-
-    HTTPClient.request(connection, :post, options)
-    |> case do
-      {:ok, %Req.Response{status: status, body: %{"document" => %{"_id" => id}}}}
-      when status in 200..299 ->
-        {:ok, id}
-
-      result ->
-        normalize_response(result)
-    end
-  end
-
   def upload_image(connection, asset) do
     options =
       request_options(connection,

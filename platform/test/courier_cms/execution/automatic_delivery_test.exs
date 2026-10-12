@@ -396,6 +396,39 @@ defmodule CourierCMS.Execution.AutomaticDeliveryTest do
            )
   end
 
+  test "an operator can immediately reconcile a Run with a missing asset job" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+    route = route_fixture(scope)
+    assert {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    item = Repo.get_by!(RunItem, run_id: run.id, source_item_key: "101")
+    assert {:snooze, _seconds} = Execution.process_run_item(item.id, 1, 3)
+    asset = Repo.get_by!(RunAsset, run_id: run.id)
+
+    Repo.delete_all(
+      from(job in Oban.Job,
+        where:
+          job.worker == "CourierCMS.Execution.AssetWorker" and
+            job.args["run_asset_id"] == ^asset.id
+      )
+    )
+
+    assert {:ok, %{assets: 1, items: 0, planners: 0}} =
+             Execution.reconcile_stranded_run(scope, run.id)
+
+    assert Repo.get!(RunAsset, asset.id).status == :pending
+
+    assert Repo.exists?(
+             from(job in Oban.Job,
+               where:
+                 job.worker == "CourierCMS.Execution.AssetWorker" and
+                   job.args["run_asset_id"] == ^asset.id and
+                   job.state in ["available", "scheduled", "executing", "retryable"]
+             )
+           )
+  end
+
   test "retention removes old completed Runs and their Run Items in a bounded batch" do
     scope = CourierCMS.AccountsFixtures.user_scope_fixture()
     route = route_fixture(scope)

@@ -1277,6 +1277,33 @@ defmodule CourierCMSWeb.RouteLive do
             >Preview first matching item</button>
           </div>
           <div :if={@delivery_preview} id="delivery-preview" class="mt-4 grid gap-4 lg:grid-cols-2">
+            <div class="lg:col-span-2">
+              <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/45">
+                Content Bundle
+              </h3>
+              <div id="content-bundle-summary" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <.bundle_metric
+                  label="Root"
+                  value={@delivery_preview.content_bundle.root_source_item_id}
+                />
+                <.bundle_metric
+                  label="Included content"
+                  value={@delivery_preview.content_bundle.included_content_count}
+                />
+                <.bundle_metric
+                  label="Relationships"
+                  value={@delivery_preview.content_bundle.relationship_count}
+                />
+                <.bundle_metric
+                  label="Delivery Assets"
+                  value={@delivery_preview.content_bundle.asset_count}
+                />
+                <.bundle_metric
+                  label="Declared asset bytes"
+                  value={bundle_bytes(@delivery_preview.content_bundle)}
+                />
+              </div>
+            </div>
             <div>
               <h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-base-content/45">
                 Canonical delivery document
@@ -1453,6 +1480,24 @@ defmodule CourierCMSWeb.RouteLive do
     </Layouts.app>
     """
   end
+
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+
+  defp bundle_metric(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-300 bg-base-200/40 px-3 py-2">
+      <p class="text-xs text-base-content/55">{@label}</p>
+      <p class="mt-1 font-mono text-sm font-semibold">{@value}</p>
+    </div>
+    """
+  end
+
+  defp bundle_bytes(%{declared_asset_bytes: bytes, assets_with_unknown_size: 0}),
+    do: Integer.to_string(bytes)
+
+  defp bundle_bytes(%{declared_asset_bytes: bytes, assets_with_unknown_size: unknown}),
+    do: "#{bytes} + #{unknown} unknown"
 
   attr :label, :string, required: true
   attr :value, :any, required: true

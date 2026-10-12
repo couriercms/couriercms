@@ -67,4 +67,61 @@ defmodule CourierCMS.Assets.TransferTest do
 
     assert message =~ "checksum"
   end
+
+  test "streams a representative large asset through bounded temporary storage" do
+    chunk = :binary.copy(<<42>>, 64 * 1_024)
+    chunk_count = 128
+    byte_size = byte_size(chunk) * chunk_count
+    chunks = Stream.repeatedly(fn -> chunk end) |> Stream.take(chunk_count)
+    checksum = streamed_checksum(chunks)
+
+    Application.put_env(:couriercms, :max_asset_bytes, byte_size + 1)
+
+    descriptor = %AssetDescriptor{
+      source_key: "large-asset",
+      size: byte_size,
+      checksum: checksum
+    }
+
+    content = %AssetContent{
+      chunks: chunks,
+      byte_size: byte_size,
+      checksum: checksum,
+      media_type: "application/octet-stream"
+    }
+
+    assert :accepted =
+             Transfer.with_materialized(content, descriptor, fn materialized ->
+               assert Enum.reduce(materialized.chunks, 0, &(byte_size(&1) + &2)) == byte_size
+               :accepted
+             end)
+
+    assert File.ls!(Application.fetch_env!(:couriercms, :asset_temp_dir)) == []
+  end
+
+  test "removes partial temporary data when a source stream terminates" do
+    Application.put_env(:couriercms, :max_asset_bytes, 1_024)
+
+    chunks =
+      Stream.concat([
+        ["first-chunk"],
+        Stream.map([:failure], fn _value -> raise "interrupted source stream" end)
+      ])
+
+    descriptor = %AssetDescriptor{source_key: "interrupted-asset"}
+    content = %AssetContent{chunks: chunks}
+
+    assert {:error, %AdapterError{category: :temporarily_unavailable, retryable: true}} =
+             Transfer.with_materialized(content, descriptor, fn _content -> :unexpected end)
+
+    assert File.ls!(Application.fetch_env!(:couriercms, :asset_temp_dir)) == []
+  end
+
+  defp streamed_checksum(chunks) do
+    chunks
+    |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+    |> :crypto.hash_final()
+    |> Base.encode16(case: :lower)
+    |> then(&("sha256:" <> &1))
+  end
 end

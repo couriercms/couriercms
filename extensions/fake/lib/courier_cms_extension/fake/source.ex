@@ -253,7 +253,12 @@ defmodule CourierCMSExtension.Fake.Source do
       {:error,
        AdapterError.new(:temporarily_unavailable, "Fake asset read failed", retryable: true)}
     else
-      content = "fake-asset:#{source_key}:#{descriptor.variant_key}"
+      version =
+        connection
+        |> setting("asset_content_versions", %{})
+        |> Map.get(source_key, "v1")
+
+      content = "fake-asset:#{source_key}:#{descriptor.variant_key}:#{version}"
 
       {:ok,
        %AssetContent{
@@ -419,11 +424,16 @@ defmodule CourierCMSExtension.Fake.Source do
     revision_overrides = setting(connection, "revision_overrides", %{})
     title_overrides = setting(connection, "title_overrides", %{})
     modified_at_overrides = setting(connection, "modified_at_overrides", %{})
+    featured_image_overrides = setting(connection, "featured_image_overrides", %{})
 
     Enum.map(@posts, fn post ->
       post
       |> Map.put(:revision, Map.get(revision_overrides, post.id, post.revision))
       |> Map.put(:title, Map.get(title_overrides, post.id, post.title))
+      |> Map.put(
+        :featured_image,
+        Map.get(featured_image_overrides, post.id, post.featured_image)
+      )
       |> Map.put(
         :modified_at,
         modified_at_override(modified_at_overrides, post.id, post.modified_at)

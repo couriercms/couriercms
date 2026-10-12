@@ -31,8 +31,11 @@ CourierCMS VM
 Core code and native Extensions share one BEAM trust boundary. Route
 configuration, mapped content, webhook payloads, CMS responses, and target
 endpoints remain untrusted inputs. Installing an Extension is equivalent to
-installing server application code: it is restricted to owners/administrators,
-must come from a trusted source, and is not sandboxed by the VM.
+installing a WordPress plugin or server application code: it is restricted to
+owners/administrators, must come from a trusted source, and is not sandboxed by
+the VM. The SDK controls supported CourierCMS interactions; it cannot prevent
+trusted OTP code from using ordinary Erlang/Elixir or operating-system
+capabilities available to the CourierCMS process.
 
 ## Credentials
 
@@ -177,6 +180,11 @@ These records inherit the owning Run Item's retention and deletion behavior.
   validation. Never compile Extension source in production.
 - Treat Extension code as fully trusted. Do not claim process, memory, or secret
   isolation merely because its processes are supervised.
+- Treat a Rust or other-language helper reached through an Erlang Port, local
+  socket, or service API as part of the same trusted deployment. The current
+  package loader does not install or sandbox helper executables; document and
+  operate their provenance, permissions, supervision, limits, and upgrades
+  explicitly.
 - Do not grant an Extension direct PostgreSQL access, the encryption root key,
   or unrelated Connection credentials through the SDK.
 - Capture Extension identity, version, SDK contract, and package checksum on
@@ -185,8 +193,9 @@ These records inherit the owning Run Item's retention and deletion behavior.
   download and execute marketplace packages automatically.
 - Reject duplicate Extension IDs, unsafe archive paths, forbidden migrations,
   and incompatible Elixir/OTP/dependency requirements.
-- Native libraries, untrusted code, scheduler-blocking parsing, and conflicting
-  dependency versions require a separate architecture decision.
+- Native libraries, untrusted code, scheduler-blocking parsing, bundled helper
+  executables, and conflicting dependency versions require a separate
+  architecture and deployment decision.
 
 ## Dependency and release security
 

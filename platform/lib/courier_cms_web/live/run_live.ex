@@ -136,6 +136,17 @@ defmodule CourierCMSWeb.RunLive do
     {:noreply, load_assets(socket, parse_page(page))}
   end
 
+  def handle_event("show-dependent-item", %{"source" => source_item_key}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       items_visible?: true,
+       item_status: "all",
+       item_source_query: String.trim(source_item_key)
+     )
+     |> load_items(1)}
+  end
+
   def handle_event("cancel", _params, socket) do
     case Execution.cancel_run(socket.assigns.current_scope, socket.assigns.run.id) do
       {:ok, _run} ->
@@ -146,6 +157,23 @@ defmodule CourierCMSWeb.RunLive do
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "This Run cannot be cancelled.")}
+    end
+  end
+
+  def handle_event("reconcile", _params, socket) do
+    case Execution.reconcile_stranded_run(socket.assigns.current_scope, socket.assigns.run.id) do
+      {:ok, counts} ->
+        total = counts.assets + counts.items + counts.planners
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Reconciliation completed; #{total} missing jobs were restored.")
+         |> assign_run(socket.assigns.run.id)
+         |> refresh_items()
+         |> refresh_assets()}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Run reconciliation could not be completed.")}
     end
   end
 
@@ -238,6 +266,12 @@ defmodule CourierCMSWeb.RunLive do
           </:subtitle>
         </.header>
         <div class="flex items-center gap-2">
+          <button
+            :if={@can_retry? && @run.status in [:queued, :planning, :running]}
+            id="reconcile-run"
+            phx-click="reconcile"
+            class="btn btn-outline btn-sm"
+          >Reconcile jobs</button>
           <button
             :if={@can_cancel? && @run.status in [:queued, :planning, :running]}
             phx-click="cancel"
@@ -388,7 +422,9 @@ defmodule CourierCMSWeb.RunLive do
           <table class="table mt-3">
             <thead>
               <tr>
-                <th>Source asset</th><th>File</th><th>Operation</th><th>Attempts</th><th>Status</th><th>
+                <th>Source asset</th><th>File</th><th>Used by</th><th>Operation</th><th>Attempts</th><th>
+                  Status
+                </th><th>
                   Target / error
                 </th><th></th>
               </tr>
@@ -399,6 +435,33 @@ defmodule CourierCMSWeb.RunLive do
                 <td>
                   <p class="text-sm">{entry.delivery_asset.filename || "—"}</p>
                   <p class="text-xs text-base-content/45">{entry.delivery_asset.media_type}</p>
+                </td>
+                <td>
+                  <details :if={entry.dependent_item_count > 0} class="text-xs">
+                    <summary class="cursor-pointer">
+                      {entry.dependent_item_count} item{if entry.dependent_item_count == 1,
+                        do: "",
+                        else: "s"}
+                    </summary>
+                    <ul class="mt-1 space-y-1">
+                      <li :for={item <- entry.dependent_items}>
+                        <a
+                          href="#delivery-items"
+                          phx-click="show-dependent-item"
+                          phx-value-source={item.source_item_key}
+                          class="link font-mono"
+                        >{item.source_item_key}</a>
+                        <span class="text-base-content/50">({item.status})</span>
+                      </li>
+                    </ul>
+                    <p
+                      :if={entry.dependent_item_count > length(entry.dependent_items)}
+                      class="text-base-content/50"
+                    >
+                      and {entry.dependent_item_count - length(entry.dependent_items)} more
+                    </p>
+                  </details>
+                  <span :if={entry.dependent_item_count == 0}>—</span>
                 </td>
                 <td class="capitalize">{entry.run_asset.planned_operation || "—"}</td>
                 <td>{entry.run_asset.attempt_count}</td>

@@ -64,11 +64,12 @@ identity. The receipt records Route and Destination ownership and points to the
 native image asset; it is used for safe lookup, replay, and update. CourierCMS
 never deletes either record.
 
-The older public-URL upload path remains only as a compatibility fallback for a
-payload that reaches the Adapter without an independently delivered target
-reference. The normal WordPress-to-Sanity path can read protected WordPress
-media with the Connection's Application Password because WordPress streams the
-bytes rather than asking Sanity to fetch the URL.
+The Adapter never uploads an asset as a side effect of writing a Delivery Item.
+A featured image is written only when the payload contains the verified target
+reference produced by the independent Delivery Asset job. The
+WordPress-to-Sanity path can therefore read protected WordPress media with the
+Connection's Application Password and does not require Sanity to fetch a
+public source URL.
 
 ## Studio package
 

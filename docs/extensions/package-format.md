@@ -4,6 +4,18 @@ This document defines the package format for trusted CourierCMS OTP Extensions.
 CourierCMS validates and loads these packages at node startup. Fields may only
 change through a versioned contract update before the first stable SDK release.
 
+Installing a package installs trusted OTP application code into the CourierCMS
+BEAM VM. Package validation establishes compatibility and integrity; it does
+not sandbox the Extension. This trust model is comparable to installing a
+WordPress plugin.
+
+The package format currently carries the OTP application's compiled BEAM
+artifacts and declared metadata. An Extension may communicate with an
+explicitly deployed Rust or other-language helper through a supervised Erlang
+Port or another deliberate boundary, but CourierCMS does not currently bundle,
+install, distribute, or sandbox helper executables as part of a `.couriercms`
+package.
+
 ## Archive layout
 
 An Extension is distributed as a `.couriercms` archive containing one precompiled

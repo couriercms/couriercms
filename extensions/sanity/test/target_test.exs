@@ -75,23 +75,19 @@ defmodule CourierCMSExtension.Sanity.TargetTest do
            }
   end
 
-  test "creates a delivery and uploads its public featured image", %{
+  test "creates a delivery without performing an in-item asset upload", %{
     connection: connection,
     stub: stub
   } do
     Req.Test.stub(stub, fn conn ->
       case {conn.method, conn.request_path} do
-        {"POST", "/v2026-09-24/assets/images/production/from-url"} ->
-          assert request_json(conn)["url"] == "https://wordpress.example/image.jpg"
-          Req.Test.json(conn, %{"document" => %{"_id" => "image-asset-id"}})
-
         {"POST", "/v2026-09-24/data/mutate/production"} ->
           %{"mutations" => [%{"create" => document}]} = request_json(conn)
           assert document["_type"] == "couriercmsDelivery"
           assert document["title"] == "a-delivery--abc12345"
           assert document["couriercmsKey"] == "key-1"
           assert document["destinationId"] == "destination-1"
-          assert document["featuredImage"]["asset"]["_ref"] == "image-asset-id"
+          refute Map.has_key?(document, "featuredImage")
           canonical = Jason.decode!(document["deliveryJson"])
           assert canonical["couriercms"]["deliveryKey"] == "key-1"
           assert canonical["payload"]["title"] == "A delivery"

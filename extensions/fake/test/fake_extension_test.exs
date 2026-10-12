@@ -54,7 +54,7 @@ defmodule CourierCMSExtension.FakeTest do
     descriptor = %AssetDescriptor{source_key: "media-1", media_type: "image/png"}
 
     assert {:ok, content} = Source.read_asset(connection, descriptor)
-    assert IO.iodata_to_binary(Enum.to_list(content.chunks)) == "fake-asset:media-1:original"
+    assert IO.iodata_to_binary(Enum.to_list(content.chunks)) == "fake-asset:media-1:original:v1"
 
     asset = asset_delivery(descriptor, content)
     assert {:ok, created} = Target.create_asset(connection, asset)

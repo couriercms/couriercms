@@ -203,27 +203,27 @@ defmodule CourierCMSExtension.Sanity.Target do
           destination: destination
         } = delivery
       ) do
-    with {:ok, image} <- upload_featured_image(connection, payload) do
-      document =
-        delivery_document(
-          envelope,
-          payload,
-          canonical_document,
-          projections,
-          image,
-          delivery_name(delivery.name)
-        )
+    image = delivered_featured_image(payload)
 
-      case client(connection).create_document(connection, document) do
-        {:ok, document_id} ->
-          {:ok, result(document_id, envelope)}
+    document =
+      delivery_document(
+        envelope,
+        payload,
+        canonical_document,
+        projections,
+        image,
+        delivery_name(delivery.name)
+      )
 
-        {:error, %AdapterError{category: :target_rejected}} ->
-          recover_create(connection, destination, envelope)
+    case client(connection).create_document(connection, document) do
+      {:ok, document_id} ->
+        {:ok, result(document_id, envelope)}
 
-        error ->
-          error
-      end
+      {:error, %AdapterError{category: :target_rejected}} ->
+        recover_create(connection, destination, envelope)
+
+      error ->
+        error
     end
   end
 
@@ -239,8 +239,9 @@ defmodule CourierCMSExtension.Sanity.Target do
         } = delivery,
         ownership
       ) do
+    image = delivered_featured_image(payload)
+
     with :ok <- verify_ownership(envelope, ownership),
-         {:ok, image} <- upload_featured_image(connection, payload),
          document <-
            delivery_document(
              envelope,
@@ -307,23 +308,18 @@ defmodule CourierCMSExtension.Sanity.Target do
     end
   end
 
-  defp upload_featured_image(connection, %{"featured_image" => descriptor})
+  defp delivered_featured_image(%{"featured_image" => descriptor})
        when is_map(descriptor) do
-    case {descriptor["target_reference"], descriptor["source_url"]} do
-      {asset_id, _url} when is_binary(asset_id) and asset_id != "" ->
-        {:ok, sanity_image(asset_id, descriptor)}
-
-      {_asset_id, url} when is_binary(url) and url != "" ->
-        with {:ok, asset_id} <- client(connection).upload_image_from_url(connection, descriptor) do
-          {:ok, sanity_image(asset_id, descriptor)}
-        end
+    case descriptor["target_reference"] do
+      asset_id when is_binary(asset_id) and asset_id != "" ->
+        sanity_image(asset_id, descriptor)
 
       _other ->
-        {:ok, nil}
+        nil
     end
   end
 
-  defp upload_featured_image(_connection, _payload), do: {:ok, nil}
+  defp delivered_featured_image(_payload), do: nil
 
   defp delivery_document(
          %DeliveryEnvelope{} = envelope,

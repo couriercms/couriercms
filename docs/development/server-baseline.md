@@ -85,3 +85,28 @@ planning, 37,661 ms delivery (13.28 items/second), 7 ms reconciliation, and a
 measured Server regression from the recorded reference; they are still only a
 development-machine guardrail, not a throughput guarantee.
 
+## Content Bundle, Delivery Asset, and Processor comparison
+
+Recorded on 2026-10-12 after the V0 Content Bundle, independent Delivery Asset,
+and Processor pipelines were complete. The Server suite passed 264 tests with
+7 skipped and 2 profile/load exclusions. The Local suite passed 219 tests with
+8 skipped and 46 Server-only exclusions. Both explicit planner load tests also
+passed.
+
+The same 500-item PostgreSQL sample reported:
+
+| Measurement | Result |
+| --- | ---: |
+| Planning | 172 ms / 32 queries |
+| Sequential fake delivery | 38,595 ms / 25,507 queries |
+| Fake delivery throughput | 12.96 items/second |
+| Final reconciliation | 8 ms / 5 queries |
+| Bounded Run operator page mount | 224 ms / 22 queries |
+
+Compared with the prior completed dual-profile measurement, throughput changed
+from 13.28 to 12.96 items/second on the same development machine. That is
+approximately a 2.4% difference and is not a material Server regression. Query
+counts increased by one during planning, delivery, and reconciliation while
+the bounded operator page remained at 22 queries. The CI ceilings remain the
+authoritative regression guardrails.
+

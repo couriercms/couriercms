@@ -18,9 +18,9 @@ pretending that every CMS exposes the same traversal model.
 
 Large or shared media needs stronger reliability semantics than an incidental
 field inside a content write. Extension Processors are also useful for bounded,
-target-independent transformations. The runtime now supports independent asset
-delivery when both Adapters advertise the optional SDK callbacks. Processor
-execution remains future work.
+target-independent transformations. The runtime supports independent asset
+delivery when both Adapters advertise the optional SDK callbacks and supports
+bounded Processor execution through the Extension Gateway.
 
 ## Decision
 

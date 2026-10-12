@@ -42,8 +42,12 @@ the CourierCMS VM at node startup.
 - Extensions are trusted server code, not sandboxed tenant code.
 - Multi-node installations provision the identical package on each eligible
   node; initial CourierCMS does not distribute packages automatically.
-- Hot reload, side-by-side versions, Ports, sidecars, remote workers, and a
-  language-neutral protocol are outside this decision.
+- Hot reload, side-by-side versions, platform-managed Ports or sidecars, remote
+  workers, and a language-neutral protocol are outside this decision. Because
+  an Extension is ordinary trusted OTP code, it may still communicate with an
+  explicitly deployed helper through a supervised Erlang Port when a
+  demonstrated capability requires another runtime. CourierCMS does not
+  package, distribute, sandbox, or operate that helper under this contract.
 
 Affected Routes are paused and drained before an upgrade. Jobs must never
 silently resume using an artifact different from the version/checksum captured
@@ -84,7 +88,10 @@ Transformation boundary, and target ownership rules remain in force.
   semantics substantially harder.
 - **Multiple namespaced Extension versions:** supports side-by-side Runs but
   leaks versioning into module names and package design for an infrequent need.
-- **Ports or sidecar services:** useful for isolation or other languages, but
-  rejected as the default because they add an unnecessary distributed runtime.
+- **Platform-managed Ports or sidecar services:** useful for isolation or other
+  languages, but rejected as the default because they add an unnecessary
+  second lifecycle. A trusted Extension is not prohibited from coordinating
+  with a separately deployed helper; that integration needs its own explicit
+  deployment and reliability design.
 - **Remote microservices:** rejected because they contradict the self-hosted
   modular-monolith operational goal.

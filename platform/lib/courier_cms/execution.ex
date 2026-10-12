@@ -6,7 +6,14 @@ defmodule CourierCMS.Execution do
   alias CourierCMS.Accounts
   alias CourierCMS.Accounts.Scope
   alias CourierCMS.Assets
-  alias CourierCMS.Assets.{DeliveryAsset, DeliveryAssetBinding, RunAsset, Transfer}
+
+  alias CourierCMS.Assets.{
+    DeliveryAsset,
+    DeliveryAssetBinding,
+    RunAsset,
+    RunItemAsset,
+    Transfer
+  }
 
   alias CourierCMS.ExtensionSDK.{
     AdapterError,
@@ -33,6 +40,8 @@ defmodule CourierCMS.Execution do
     RunItem
   }
 
+  alias CourierCMS.Execution.ReconcileWorker
+
   alias CourierCMS.Installation
   alias CourierCMS.Mapping
   alias CourierCMS.Processors
@@ -50,6 +59,7 @@ defmodule CourierCMS.Execution do
   @processor_execution_page_limit 500
   @run_item_statuses [:pending, :processing, :succeeded, :retrying, :failed, :skipped, :cancelled]
   @run_asset_page_size 50
+  @run_asset_dependency_preview_limit 5
   @run_asset_statuses [
     :pending,
     :processing,
@@ -127,6 +137,21 @@ defmodule CourierCMS.Execution do
       :destination,
       route: [:source_connection, :target_connection]
     ])
+  end
+
+  @doc "Requeues missing planner, Delivery Item, and Delivery Asset jobs for one scoped Run."
+  def reconcile_stranded_run(%Scope{} = scope, run_id) do
+    with :ok <- Accounts.authorize(scope, [:owner, :admin, :operator]),
+         %Run{} = run <- scoped_run(scope, run_id) do
+      result = ReconcileWorker.reconcile_run(run.id)
+
+      Workspaces.audit(scope, "run.reconciled", "run", run.id, result)
+      broadcast(run.id)
+      {:ok, result}
+    else
+      nil -> {:error, :not_found}
+      error -> error
+    end
   end
 
   @doc """
@@ -254,6 +279,7 @@ defmodule CourierCMS.Execution do
         binding: binding
       })
       |> Repo.all()
+      |> attach_run_asset_dependencies()
 
     %{
       items: items,
@@ -262,6 +288,54 @@ defmodule CourierCMS.Execution do
       total_count: total_count,
       total_pages: total_pages
     }
+  end
+
+  defp attach_run_asset_dependencies([]), do: []
+
+  defp attach_run_asset_dependencies(entries) do
+    run_asset_ids = Enum.map(entries, & &1.run_asset.id)
+
+    dependency_counts =
+      RunItemAsset
+      |> where([dependency], dependency.run_asset_id in ^run_asset_ids)
+      |> group_by([dependency], dependency.run_asset_id)
+      |> select([dependency], {dependency.run_asset_id, count(dependency.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    ranked_dependencies =
+      RunItemAsset
+      |> join(:inner, [dependency], item in assoc(dependency, :run_item))
+      |> where([dependency], dependency.run_asset_id in ^run_asset_ids)
+      |> windows([dependency, item],
+        asset_dependencies: [
+          partition_by: dependency.run_asset_id,
+          order_by: [asc: item.inserted_at, asc: item.id]
+        ]
+      )
+      |> select([dependency, item], %{
+        run_asset_id: dependency.run_asset_id,
+        source_item_key: item.source_item_key,
+        status: item.status,
+        field_path: dependency.field_path,
+        required: dependency.required,
+        position: over(row_number(), :asset_dependencies)
+      })
+
+    dependency_previews =
+      ranked_dependencies
+      |> subquery()
+      |> where([dependency], dependency.position <= ^@run_asset_dependency_preview_limit)
+      |> order_by([dependency], asc: dependency.run_asset_id, asc: dependency.position)
+      |> Repo.all()
+      |> Enum.group_by(& &1.run_asset_id)
+
+    Enum.map(entries, fn entry ->
+      Map.merge(entry, %{
+        dependent_item_count: Map.get(dependency_counts, entry.run_asset.id, 0),
+        dependent_items: Map.get(dependency_previews, entry.run_asset.id, [])
+      })
+    end)
   end
 
   defp maybe_filter_run_asset_status(query, status) when status in @run_asset_statuses,
@@ -374,6 +448,7 @@ defmodule CourierCMS.Execution do
              Projection.project(canonical_document, route.current_revision.projections) do
         {:ok,
          %{
+           content_bundle: content_bundle_summary(bundle),
            canonical_document: canonical_document,
            delivery_name: delivery_name,
            projections: projections
@@ -384,6 +459,27 @@ defmodule CourierCMS.Execution do
       {:ok, %{items: []}} -> {:error, :no_matching_content}
       error -> error
     end
+  end
+
+  defp content_bundle_summary(%ContentBundle{} = bundle) do
+    {declared_asset_bytes, unknown_asset_sizes} =
+      Enum.reduce(bundle.assets, {0, 0}, fn descriptor, {bytes, unknown} ->
+        if is_integer(descriptor.size) do
+          {bytes + descriptor.size, unknown}
+        else
+          {bytes, unknown + 1}
+        end
+      end)
+
+    %{
+      root_source_item_id: bundle.root.identity.item_key,
+      root_source_type: bundle.root.source_type,
+      included_content_count: length(bundle.included),
+      relationship_count: length(bundle.relationships),
+      asset_count: length(bundle.assets),
+      declared_asset_bytes: declared_asset_bytes,
+      assets_with_unknown_size: unknown_asset_sizes
+    }
   end
 
   def start_manual_run(%Scope{} = scope, route_id, opts \\ []) do

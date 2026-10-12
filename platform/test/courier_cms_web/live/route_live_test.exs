@@ -366,6 +366,9 @@ defmodule CourierCMSWeb.RouteLiveTest do
     |> render_click()
 
     assert has_element?(view, "#delivery-preview")
+    assert has_element?(view, "#content-bundle-summary", "Included content")
+    assert has_element?(view, "#content-bundle-summary", "Relationships")
+    assert has_element?(view, "#content-bundle-summary", "Delivery Assets")
     assert render(view) =~ "Autumn campaign launch"
     assert Routes.get_route!(scope, route.id).current_revision.id == revision_id
   end

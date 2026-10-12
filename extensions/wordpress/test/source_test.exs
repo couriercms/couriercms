@@ -292,6 +292,43 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
     assert external_content.chunks |> Enum.to_list() |> IO.iodata_to_binary() == "cdn-image"
   end
 
+  test "retries an authenticated asset after a transient source response" do
+    stub = {__MODULE__, :authenticated_asset_retry, self()}
+    expected = "Basic " <> Base.encode64("couriercms-reader:app-password")
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :wordpress_asset_attempts)
+
+    Req.Test.expect(stub, 2, fn conn ->
+      assert Plug.Conn.get_req_header(conn, "authorization") == [expected]
+
+      case Agent.get_and_update(attempts, fn attempt -> {attempt, attempt + 1} end) do
+        0 -> Plug.Conn.send_resp(conn, 503, "temporarily unavailable")
+        1 -> Plug.Conn.send_resp(conn, 200, "renewed-image")
+      end
+    end)
+
+    connection = %{
+      endpoint: "https://wordpress.example",
+      credentials: %{
+        "username" => "couriercms-reader",
+        "application_password" => "app-password"
+      },
+      settings: %{req_options: [plug: {Req.Test, stub}]}
+    }
+
+    descriptor = %CourierCMS.ExtensionSDK.AssetDescriptor{
+      source_key: "501",
+      filename: "protected.jpg",
+      media_type: "image/jpeg",
+      retrieval: %{"kind" => "url", "url" => "https://wordpress.example/protected.jpg"}
+    }
+
+    assert {:error, error} = Source.read_asset(connection, descriptor)
+    assert error.retryable
+
+    assert {:ok, content} = Source.read_asset(connection, descriptor)
+    assert content.chunks |> Enum.to_list() |> IO.iodata_to_binary() == "renewed-image"
+  end
+
   test "does not bind a changed post to an older discovered revision", %{connection: connection} do
     {:ok, %{items: [identity]}} = Source.enumerate(connection, %{}, nil)
     stale = %{identity | revision_key: "older-revision"}
