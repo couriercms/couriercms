@@ -20,6 +20,12 @@
       "kind": "adapter",
       "module": "CourierCMSExtension.Fake.Target",
       "capabilities": ["target", "connection_test", "assets", "canonical_document_storage"]
+    },
+    {
+      "id": "fake_prefix",
+      "kind": "processor",
+      "module": "CourierCMSExtension.Fake.PrefixProcessor",
+      "capabilities": ["processor"]
     }
   ]
 }

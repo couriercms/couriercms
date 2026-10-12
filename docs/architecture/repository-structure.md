@@ -13,6 +13,7 @@ couriercms/
   extensions/
     sdk/                    stable public Extension SDK
     fake/                   development/test-only adapters
+    content/                target-independent content Processors
     wordpress/              CourierCMS-hosted source extension
     sanity/                 CourierCMS-hosted target extension
   connectors/
@@ -30,7 +31,7 @@ Docker build can see both `platform/` and official extension source projects.
 
 ```text
 platform -> Extension SDK
-extension -> Extension SDK + external CMS API
+extension -> Extension SDK + optional external content API
 connector -> documented HTTP/event contract
 example -> target-owned integration APIs
 ```

@@ -9,7 +9,7 @@ defmodule CourierCMS.Execution.FakeRouteTest do
   alias CourierCMS.Assets
   alias CourierCMS.Assets.{DeliveryAsset, DeliveryAssetBinding, RunAsset, RunItemAsset}
   alias CourierCMS.Execution
-  alias CourierCMS.Execution.RunItem
+  alias CourierCMS.Execution.{ProcessorExecution, RunItem}
   alias CourierCMS.ExtensionSDK.AssetDescriptor
   alias CourierCMS.Ownership.DeliveryBinding
   alias CourierCMS.Ownership.RouteItem
@@ -59,6 +59,10 @@ defmodule CourierCMS.Execution.FakeRouteTest do
       )
 
     assert stored.payload["featured_image"]["target_reference"] =~ "fake-asset:"
+    assert [asset_reference] = stored.canonical_document["assets"]
+    assert asset_reference["sourceKey"] == "501"
+    assert asset_reference["targetReference"] =~ "fake-asset:"
+    assert asset_reference["couriercmsAssetKey"]
 
     asset_item =
       first_items
@@ -167,6 +171,233 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     assert Enum.all?(Repo.all(DeliveryBinding), fn binding ->
              binding.last_route_revision_id == updated_route.current_revision_id
            end)
+  end
+
+  test "applies the immutable transformation chain before hashing and delivery" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+
+    transformations = [
+      %{
+        "kind" => "builtin",
+        "operation" => "string.slug",
+        "version" => 1,
+        "input_path" => "title",
+        "output_path" => "slug",
+        "config" => %{}
+      }
+    ]
+
+    route = route_fixture(scope, %{transformations: transformations})
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    process_items_with_retry(run.id)
+
+    delivered_item = items(run.id) |> Enum.find(&(&1.source_item_key == "101"))
+
+    stored =
+      Store.fetch(
+        route.target_connection_id,
+        route.current_destination_id,
+        delivered_item.delivery_key
+      )
+
+    assert stored.payload["slug"] == "reliable-content-delivery-with-couriercms"
+
+    assert stored.canonical_document["payload"]["slug"] ==
+             "reliable-content-delivery-with-couriercms"
+  end
+
+  test "pins and executes ordered Extension Processors before hashing and delivery" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+
+    processors = [
+      %{
+        "kind" => "processor",
+        "extension_id" => "com.couriercms.fake",
+        "component_id" => "fake_prefix",
+        "input_path" => "title",
+        "output_path" => "title",
+        "config" => %{"prefix" => "Processed: "},
+        "failure_policy" => "fail"
+      }
+    ]
+
+    route = route_fixture(scope, %{processors: processors})
+    assert [processor] = route.current_revision.processors
+    assert processor["component_version"] == "0.1.0"
+
+    {:ok, preview} = Execution.preview_route(scope, route.id)
+
+    assert preview.canonical_document["payload"]["title"] ==
+             "Processed: Reliable content delivery with CourierCMS"
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert [artifact] = run.processor_artifacts
+    assert artifact["component_id"] == "fake_prefix"
+    assert artifact["version"] == "0.1.0"
+    assert is_binary(artifact["checksum"])
+
+    assert :ok = Execution.plan_run(run.id)
+    process_items_with_retry(run.id)
+
+    delivered_item = items(run.id) |> Enum.find(&(&1.source_item_key == "101"))
+
+    stored =
+      Store.fetch(
+        route.target_connection_id,
+        route.current_destination_id,
+        delivered_item.delivery_key
+      )
+
+    assert stored.payload["title"] == "Processed: Reliable content delivery with CourierCMS"
+    assert stored.canonical_document["payload"]["title"] == stored.payload["title"]
+
+    assert [execution] =
+             Repo.all(
+               from(execution in ProcessorExecution,
+                 where: execution.run_item_id == ^delivered_item.id
+               )
+             )
+
+    assert execution.attempt > 0
+    assert execution.position == 1
+    assert execution.extension_id == "com.couriercms.fake"
+    assert execution.component_id == "fake_prefix"
+    assert execution.component_version == "0.1.0"
+    assert execution.status == :succeeded
+    assert execution.input_bytes > 0
+    assert execution.output_bytes > 0
+    assert execution.duration_us >= 0
+    assert execution.input_hash =~ "sha256:"
+    assert execution.output_hash =~ "sha256:"
+    refute execution.error_summary
+  end
+
+  test "records failed Processor evidence and closes interrupted attempts" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+
+    processors = [
+      %{
+        "kind" => "processor",
+        "extension_id" => "com.couriercms.fake",
+        "component_id" => "fake_prefix",
+        "input_path" => "title",
+        "output_path" => "title",
+        "config" => %{"delay_ms" => 25, "prefix" => "Processed: "},
+        "failure_policy" => "fail"
+      }
+    ]
+
+    route = route_fixture(scope, %{processors: processors})
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    item = items(run.id) |> Enum.find(&(&1.source_item_key == "102"))
+
+    interrupted =
+      %ProcessorExecution{}
+      |> ProcessorExecution.changeset(%{
+        run_item_id: item.id,
+        attempt: 1,
+        position: 1,
+        extension_id: "com.couriercms.fake",
+        component_id: "fake_prefix",
+        component_version: "0.1.0",
+        input_path: "title",
+        output_path: "title",
+        config_hash: "sha256:interrupted",
+        input_hash: "sha256:interrupted",
+        input_bytes: 1,
+        status: :processing,
+        started_at: DateTime.utc_now()
+      })
+      |> Repo.insert!()
+
+    item
+    |> RunItem.changeset(%{attempt_count: 1})
+    |> Repo.update!()
+
+    previous_timeout = Application.fetch_env!(:couriercms, :processor_timeout_ms)
+    Application.put_env(:couriercms, :processor_timeout_ms, 5)
+
+    on_exit(fn ->
+      Application.put_env(:couriercms, :processor_timeout_ms, previous_timeout)
+    end)
+
+    assert {:discard, _message} = Execution.process_run_item(item.id, 1, 1)
+
+    interrupted = Repo.reload!(interrupted)
+    assert interrupted.status == :failed
+    assert interrupted.error_category == "interrupted"
+    assert interrupted.retryable
+    assert interrupted.completed_at
+
+    assert failed =
+             Repo.get_by!(ProcessorExecution,
+               run_item_id: item.id,
+               attempt: 2,
+               position: 1
+             )
+
+    assert failed.status == :failed
+    assert failed.error_category == "timeout"
+    assert failed.error_summary == "Processor execution timed out"
+    assert failed.retryable
+    assert failed.completed_at
+  end
+
+  test "executes the official target-independent Content Processor chain" do
+    scope = CourierCMS.AccountsFixtures.user_scope_fixture()
+
+    processors = [
+      %{
+        "kind" => "processor",
+        "extension_id" => "com.couriercms.content",
+        "component_id" => "exact_token_replacer",
+        "input_path" => "title",
+        "output_path" => "title",
+        "config" => %{
+          "replacements" => %{"CourierCMS" => "Courier CMS", "Reliable" => " Reliable"}
+        },
+        "failure_policy" => "fail"
+      },
+      %{
+        "kind" => "processor",
+        "extension_id" => "com.couriercms.content",
+        "component_id" => "html_text_normalizer",
+        "input_path" => "title",
+        "output_path" => "title",
+        "config" => %{},
+        "failure_policy" => "fail"
+      }
+    ]
+
+    route = route_fixture(scope, %{processors: processors})
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+    process_items_with_retry(run.id)
+
+    delivered_item = items(run.id) |> Enum.find(&(&1.source_item_key == "101"))
+
+    stored =
+      Store.fetch(
+        route.target_connection_id,
+        route.current_destination_id,
+        delivered_item.delivery_key
+      )
+
+    assert stored.payload["title"] == "Reliable content delivery with Courier CMS"
+
+    assert [first, second | _retry_history] =
+             Repo.all(
+               from(execution in ProcessorExecution,
+                 where: execution.run_item_id == ^delivered_item.id,
+                 order_by: [asc: execution.attempt, asc: execution.position]
+               )
+             )
+
+    assert first.component_id == "exact_token_replacer"
+    assert second.component_id == "html_text_normalizer"
   end
 
   test "an authoritative enumeration token skips the source read when nothing changed" do
@@ -501,7 +732,7 @@ defmodule CourierCMS.Execution.FakeRouteTest do
     end)
   end
 
-  defp route_fixture(scope) do
+  defp route_fixture(scope, revision_overrides \\ %{}) do
     source =
       connection_fixture(scope, "Source #{System.unique_integer()}", "fake_source", %{})
 
@@ -522,14 +753,17 @@ defmodule CourierCMS.Execution.FakeRouteTest do
           current_destination_id: destination.id,
           enabled: true
         },
-        %{
-          selection: %{
-            "category" => "Engineering",
-            "tags" => ["architecture"],
-            "published_year" => ""
+        Map.merge(
+          %{
+            selection: %{
+              "category" => "Engineering",
+              "tags" => ["architecture"],
+              "published_year" => ""
+            },
+            mapping: CourierCMS.Routes.default_mapping("fake_source")
           },
-          mapping: CourierCMS.Routes.default_mapping("fake_source")
-        }
+          revision_overrides
+        )
       )
 
     route

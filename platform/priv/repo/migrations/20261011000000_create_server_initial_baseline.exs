@@ -143,6 +143,7 @@ defmodule CourierCMS.Repo.Migrations.CreateServerInitialBaseline do
       add :delivery_contract, :map, null: false, default: %{}
       add :contract_version, :integer, null: false
       add :transformations, {:array, :map}, null: false, default: []
+      add :processors, {:array, :map}, null: false, default: []
       add :trigger_settings, :map, null: false, default: %{}
       add :checksum, :text, null: false
       add :projections, {:array, :map}, null: false, default: []
@@ -385,6 +386,41 @@ defmodule CourierCMS.Repo.Migrations.CreateServerInitialBaseline do
     create constraint(:run_items, :valid_run_item_status,
              check:
                "status IN ('pending', 'processing', 'succeeded', 'retrying', 'failed', 'skipped', 'cancelled')"
+           )
+
+    create table(:processor_executions, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+
+      add :run_item_id, references(:run_items, type: :binary_id, on_delete: :delete_all),
+        null: false
+
+      add :attempt, :integer, null: false
+      add :position, :integer, null: false
+      add :extension_id, :text, null: false
+      add :component_id, :text, null: false
+      add :component_version, :text, null: false
+      add :input_path, :text, null: false
+      add :output_path, :text, null: false
+      add :config_hash, :text, null: false
+      add :input_hash, :text, null: false
+      add :output_hash, :text
+      add :input_bytes, :bigint, null: false
+      add :output_bytes, :bigint
+      add :duration_us, :bigint
+      add :status, :text, null: false, default: "processing"
+      add :error_category, :text
+      add :error_summary, :text
+      add :retryable, :boolean, null: false, default: false
+      add :started_at, :utc_datetime_usec, null: false
+      add :completed_at, :utc_datetime_usec
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:processor_executions, [:run_item_id, :attempt, :position])
+    create index(:processor_executions, [:run_item_id, :status])
+
+    create constraint(:processor_executions, :valid_processor_execution_status,
+             check: "status IN ('processing', 'succeeded', 'failed')"
            )
 
     create table(:run_assets, primary_key: false) do

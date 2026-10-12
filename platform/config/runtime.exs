@@ -169,6 +169,7 @@ for {environment_name, application_key, minimum} <- [
       {"COURIERCMS_MAX_SOURCE_PAGE_ITEMS", :max_source_page_items, 1},
       {"COURIERCMS_MAX_RUN_ITEMS", :max_run_items, 1},
       {"COURIERCMS_MAX_DELIVERY_BYTES", :max_delivery_bytes, 1_024},
+      {"COURIERCMS_PROCESSOR_TIMEOUT_MS", :processor_timeout_ms, 100},
       {"COURIERCMS_MAX_ASSET_BYTES", :max_asset_bytes, 1_024},
       {"COURIERCMS_MAX_CONTENT_BUNDLE_NODES", :max_content_bundle_nodes, 1},
       {"COURIERCMS_MAX_CONTENT_BUNDLE_RELATIONSHIPS", :max_content_bundle_relationships, 0},

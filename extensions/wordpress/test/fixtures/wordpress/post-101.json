@@ -7,7 +7,7 @@
   "type": "post",
   "link": "https://wordpress.example/posts/reliable-content-delivery/",
   "title": {"rendered": "Reliable content &amp; delivery"},
-  "content": {"rendered": "<p>CMS integrations should be <strong>observable</strong>.</p>"},
+  "content": {"rendered": "<p>CMS integrations should be <strong>observable</strong>.</p><figure><img class=\"wp-image-777\" src=\"https://wordpress.example/wp-content/uploads/inline-diagram.png\" alt=\"Inline delivery diagram\"></figure>"},
   "excerpt": {"rendered": "<p>Why delivery history matters.</p>"},
   "author": 12,
   "featured_media": 501,

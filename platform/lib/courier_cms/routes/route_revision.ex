@@ -23,6 +23,7 @@ defmodule CourierCMS.Routes.RouteRevision do
     field :delivery_contract, :map, default: %{}
     field :contract_version, :integer
     field :transformations, {:array, :map}, default: []
+    field :processors, {:array, :map}, default: []
     field :trigger_settings, :map, default: %{}
     field :checksum, :string
 
@@ -49,6 +50,7 @@ defmodule CourierCMS.Routes.RouteRevision do
       :delivery_contract,
       :contract_version,
       :transformations,
+      :processors,
       :trigger_settings,
       :checksum
     ])
@@ -67,6 +69,8 @@ defmodule CourierCMS.Routes.RouteRevision do
     |> validate_number(:contract_version, greater_than: 0)
     |> validate_length(:delivery_name_path, min: 1, max: 255)
     |> validate_mapping()
+    |> validate_transformations()
+    |> validate_processors()
     |> validate_projections()
     |> unique_constraint([:route_id, :revision_number])
     |> unique_constraint([:route_id, :checksum])
@@ -84,6 +88,20 @@ defmodule CourierCMS.Routes.RouteRevision do
     case CourierCMS.Mapping.validate(get_field(changeset, :mapping)) do
       :ok -> changeset
       {:error, message} -> add_error(changeset, :mapping, message)
+    end
+  end
+
+  defp validate_transformations(changeset) do
+    case CourierCMS.Transformations.validate(get_field(changeset, :transformations)) do
+      :ok -> changeset
+      {:error, message} -> add_error(changeset, :transformations, message)
+    end
+  end
+
+  defp validate_processors(changeset) do
+    case CourierCMS.Processors.validate(get_field(changeset, :processors)) do
+      :ok -> changeset
+      {:error, message} -> add_error(changeset, :processors, message)
     end
   end
 end

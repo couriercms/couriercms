@@ -25,6 +25,10 @@ RUN mix deps.compile
 
 COPY extensions/wordpress /app/extensions/wordpress
 COPY extensions/sanity /app/extensions/sanity
+COPY extensions/content /app/extensions/content
+RUN cd /app/extensions/content \
+  && mix deps.get --only prod \
+  && mix couriercms.extension.build
 RUN cd /app/extensions/wordpress \
   && mix deps.get --only prod \
   && mix couriercms.extension.build
@@ -65,6 +69,7 @@ RUN mkdir -p /var/lib/couriercms/extensions /var/lib/couriercms/extension-cache 
 COPY --from=builder --chown=nobody:root /app/platform/_build/prod/rel/couriercms ./
 COPY --from=builder --chown=nobody:root /app/extensions/wordpress/dist/couriercms_wordpress-0.1.0.couriercms /var/lib/couriercms/extensions/
 COPY --from=builder --chown=nobody:root /app/extensions/sanity/dist/couriercms_sanity-0.1.0.couriercms /var/lib/couriercms/extensions/
+COPY --from=builder --chown=nobody:root /app/extensions/content/dist/couriercms_content-0.1.0.couriercms /var/lib/couriercms/extensions/
 RUN chmod +x /app/bin/server /app/bin/migrate
 
 USER nobody

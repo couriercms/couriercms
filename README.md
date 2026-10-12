@@ -26,7 +26,7 @@ automation platform.
 ## Repository
 
 - `platform/` — Phoenix, LiveView, Ecto, SQLite/PostgreSQL, Oban, execution, and operator UI
-- `extensions/` — host-installed SDK and source/target Adapter projects
+- `extensions/` — host-installed SDK, Adapter, and Processor projects
 - `connectors/` — optional software installed inside external content systems
 - `examples/` — optional target-side integration examples
 - `docs/` — concepts, architecture, development, operations, and ADRs

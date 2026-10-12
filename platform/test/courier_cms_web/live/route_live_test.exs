@@ -182,6 +182,168 @@ defmodule CourierCMSWeb.RouteLiveTest do
     assert Routes.get_route!(scope, route.id).current_revision.id == revision_id
   end
 
+  test "admin previews and saves ordered built-in transformations as a new contract", %{
+    conn: conn,
+    scope: scope
+  } do
+    route = route_fixture(scope)
+    original_revision = route.current_revision.revision_number
+    original_contract = route.current_revision.contract_version
+    {:ok, view, _html} = live(conn, ~p"/routes/#{route.id}")
+
+    definitions = "title=title|string.trim\nslug=title|string.slug"
+
+    view
+    |> form("#transformations-form", %{
+      "transformations" => %{"definitions" => definitions}
+    })
+    |> render_change()
+
+    view
+    |> element("#transformations-form button", "Preview draft")
+    |> render_click()
+
+    assert has_element?(view, "#delivery-preview")
+    assert render(view) =~ "reliable-content-delivery-with-couriercms"
+
+    view
+    |> form("#transformations-form", %{
+      "transformations" => %{"definitions" => definitions}
+    })
+    |> render_submit()
+
+    updated = Routes.get_route!(scope, route.id)
+    assert updated.current_revision.revision_number == original_revision + 1
+    assert updated.current_revision.contract_version == original_contract + 1
+
+    assert Enum.map(updated.current_revision.transformations, & &1["operation"]) == [
+             "string.trim",
+             "string.slug"
+           ]
+  end
+
+  test "admin previews and saves ordered Extension Processors as a new contract", %{
+    conn: conn,
+    scope: scope
+  } do
+    route = route_fixture(scope)
+    original_revision = route.current_revision.revision_number
+    original_contract = route.current_revision.contract_version
+    {:ok, view, html} = live(conn, ~p"/routes/#{route.id}")
+
+    assert html =~ "Extension Processors"
+    assert html =~ "com.couriercms.fake/fake_prefix"
+    assert html =~ "Configuration fields are declared and validated by the installed Extension"
+
+    view
+    |> form("#processor-builder-form", %{
+      "processor_builder" => %{
+        "reference" => "com.couriercms.fake/fake_prefix",
+        "input_path" => "title",
+        "output_path" => "title"
+      },
+      "processor_config" => %{}
+    })
+    |> render_change()
+
+    view
+    |> form("#processor-builder-form", %{
+      "processor_builder" => %{
+        "reference" => "com.couriercms.fake/fake_prefix",
+        "input_path" => "title",
+        "output_path" => "title"
+      },
+      "processor_config" => %{"prefix" => "Processed: ", "delay_ms" => "0"}
+    })
+    |> render_submit()
+
+    assert Routes.get_route!(scope, route.id).current_revision.id == route.current_revision.id
+
+    view
+    |> element("#processors-form button", "Preview draft (no target write)")
+    |> render_click()
+
+    assert has_element?(view, "#delivery-preview")
+    assert render(view) =~ "Processed: Reliable content delivery with CourierCMS"
+    assert Routes.get_route!(scope, route.id).current_revision.id == route.current_revision.id
+
+    view
+    |> form("#processors-form")
+    |> render_submit()
+
+    updated = Routes.get_route!(scope, route.id)
+    assert updated.current_revision.revision_number == original_revision + 1
+    assert updated.current_revision.contract_version == original_contract + 1
+    assert [processor] = updated.current_revision.processors
+    assert processor["component_id"] == "fake_prefix"
+    assert processor["component_version"] == "0.1.0"
+    assert processor["config"] == %{"prefix" => "Processed: ", "delay_ms" => 0}
+  end
+
+  test "guided Processor editor renders Extension-owned typed configuration", %{
+    conn: conn,
+    scope: scope
+  } do
+    route = route_fixture(scope)
+    {:ok, view, _html} = live(conn, ~p"/routes/#{route.id}")
+
+    html =
+      view
+      |> form("#processor-builder-form", %{
+        "processor_builder" => %{
+          "reference" => "com.couriercms.content/html_text_normalizer",
+          "input_path" => "body.value",
+          "output_path" => "body.value"
+        },
+        "processor_config" => %{}
+      })
+      |> render_change()
+
+    assert html =~ "Normalize line endings"
+    assert html =~ "Remove control characters"
+    assert html =~ "Replace non-breaking spaces"
+    assert html =~ "Trim surrounding whitespace"
+  end
+
+  test "admin reorders and removes Processor draft steps without changing the Route", %{
+    conn: conn,
+    scope: scope
+  } do
+    route = route_fixture(scope)
+    revision_id = route.current_revision.id
+    {:ok, view, _html} = live(conn, ~p"/routes/#{route.id}")
+
+    definitions =
+      Enum.join(
+        [
+          ~s(title=title|com.couriercms.fake/fake_prefix|{"prefix":"Title: "}),
+          ~s(slug=slug|com.couriercms.fake/fake_prefix|{"prefix":"Slug: "})
+        ],
+        "\n"
+      )
+
+    view
+    |> form("#processors-form", %{"processors" => %{"definitions" => definitions}})
+    |> render_change()
+
+    assert has_element?(view, "#draft-processor-0", "title → title")
+    assert has_element?(view, "#draft-processor-1", "slug → slug")
+
+    view
+    |> element("#draft-processor-1 button", "Up")
+    |> render_click()
+
+    assert has_element?(view, "#draft-processor-0", "slug → slug")
+
+    view
+    |> element("#draft-processor-1 button", "Remove")
+    |> render_click()
+
+    assert has_element?(view, "#processor-draft-steps", "1 steps")
+    refute has_element?(view, "#draft-processor-1")
+    assert Routes.get_route!(scope, route.id).current_revision.id == revision_id
+  end
+
   test "admin previews an Adapter-defined selection before saving it", %{conn: conn, scope: scope} do
     route = route_fixture(scope)
     revision_id = route.current_revision.id

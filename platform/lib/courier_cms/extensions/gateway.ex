@@ -25,6 +25,7 @@ defmodule CourierCMS.Extensions.Gateway do
     create_asset: 2,
     update_asset: 4
   }
+  @processor_operations %{validate_config: 1, process: 2}
 
   def fetch_component(adapter_key) do
     with {:ok, entry} <- ComponentRegistry.fetch_by_alias(adapter_key),
@@ -50,7 +51,7 @@ defmodule CourierCMS.Extensions.Gateway do
     with {:ok, entry} <- component(reference), do: {:ok, Artifact.from_entry(entry)}
   end
 
-  def validate_artifact(artifact, capability) when capability in [:source, :target] do
+  def validate_artifact(artifact, capability) when capability in [:source, :target, :processor] do
     with :ok <- Artifact.validate(artifact),
          {:ok, entry} <- component(Artifact.reference(artifact)),
          true <- Artifact.matches?(artifact, entry.artifact),
@@ -82,6 +83,7 @@ defmodule CourierCMS.Extensions.Gateway do
 
   def definitions do
     ComponentRegistry.list()
+    |> Enum.filter(&(&1.source_module || &1.target_module))
     |> Enum.map(& &1.definition)
     |> Enum.sort_by(& &1.label)
   end
@@ -97,6 +99,19 @@ defmodule CourierCMS.Extensions.Gateway do
     ComponentRegistry.list()
     |> Enum.filter(& &1.target_module)
     |> Enum.map(& &1.definition)
+    |> Enum.sort_by(& &1.label)
+  end
+
+  def processor_definitions do
+    ComponentRegistry.list()
+    |> Enum.filter(& &1.processor_module)
+    |> Enum.map(fn entry ->
+      Map.merge(entry.definition, %{
+        extension_id: entry.component.extension_id,
+        component_id: entry.component.component_id,
+        version: entry.component.version
+      })
+    end)
     |> Enum.sort_by(& &1.label)
   end
 
@@ -132,6 +147,28 @@ defmodule CourierCMS.Extensions.Gateway do
 
   def target(reference, operation, args) when is_list(args) do
     invoke(reference, :target_module, @target_operations, operation, args)
+  end
+
+  def processor_available?(reference) do
+    match?({:ok, %{processor_module: module}} when not is_nil(module), component(reference))
+  end
+
+  def processor(reference, operation, args) when is_list(args) do
+    invoke(reference, :processor_module, @processor_operations, operation, args)
+  end
+
+  def processor_definition(reference) do
+    with {:ok, %{processor_module: module} = entry} when not is_nil(module) <-
+           component(reference) do
+      {:ok,
+       Map.merge(entry.definition, %{
+         extension_id: entry.component.extension_id,
+         component_id: entry.component.component_id,
+         version: entry.component.version
+       })}
+    else
+      _other -> :error
+    end
   end
 
   def test_connection(reference, connection) do
@@ -181,6 +218,7 @@ defmodule CourierCMS.Extensions.Gateway do
 
   defp capability_available?(entry, :source), do: not is_nil(entry.source_module)
   defp capability_available?(entry, :target), do: not is_nil(entry.target_module)
+  defp capability_available?(entry, :processor), do: not is_nil(entry.processor_module)
 
   defp component(adapter_key) when is_binary(adapter_key),
     do: ComponentRegistry.fetch_by_alias(adapter_key)

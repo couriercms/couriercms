@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "extensionId": "com.couriercms.content",
+  "name": "Content Processors",
+  "version": "0.1.0",
+  "otpApplication": "couriercms_content",
+  "sdkRequirement": ">= 0.1.0 and < 1.0.0",
+  "couriercmsRequirement": ">= 0.1.0 and < 1.0.0",
+  "elixirRequirement": "~> 1.20",
+  "otpRequirement": ">= 28.0.0 and < 30.0.0",
+  "components": [
+    {
+      "id": "html_text_normalizer",
+      "kind": "processor",
+      "module": "CourierCMSExtension.Content.HtmlTextNormalizer",
+      "capabilities": ["processor"]
+    },
+    {
+      "id": "exact_token_replacer",
+      "kind": "processor",
+      "module": "CourierCMSExtension.Content.ExactTokenReplacer",
+      "capabilities": ["processor"]
+    }
+  ]
+}

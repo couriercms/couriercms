@@ -23,8 +23,8 @@ calls another Adapter. Native Adapters are supplied by an Extension.
 ## Extension
 
 A trusted, administrator-installed, precompiled OTP application loaded into the
-CourierCMS VM at startup. It currently contributes Adapter components through
-the versioned Extension SDK. Processor components are planned. One version of
+CourierCMS VM at startup. It contributes Adapter and Processor components through
+the versioned Extension SDK. One version of
 an Extension ID is installed at a time; installation and upgrade require a
 restart.
 
@@ -39,8 +39,7 @@ durable source of configuration and execution history.
 
 The core boundary that resolves a stable component identifier through the
 Component Registry, validates execution artifact compatibility, and invokes the
-approved Adapter callback. Processor dispatch will use the same boundary when
-that runtime capability is implemented.
+approved Adapter or Processor callback.
 
 ## CMS Connector
 
@@ -68,7 +67,7 @@ delegates executable configuration to immutable Route Revisions.
 ## Route Revision
 
 An immutable snapshot of selection, aggregation, mapping, payload contract,
-Delivery Item naming, transformations, and trigger-related execution settings.
+Delivery Item naming, transformations, Processors, and trigger-related execution settings.
 Every Run references one Route Revision.
 
 ## Source Selection
@@ -100,7 +99,10 @@ The stable CourierCMS metadata surrounding a payload: installation, Route, sourc
 
 ## Canonical Delivery Document
 
-The complete, versioned JSON document formed from the Delivery Envelope and Delivery Payload. It is always retained in the target Delivery Item and is the authoritative representation of what CourierCMS delivered.
+The complete, versioned JSON document formed from the Delivery Envelope,
+Delivery Payload, and optional ordered Delivery Asset manifest. It is always
+retained in the target Delivery Item and is the authoritative representation of
+what CourierCMS delivered.
 
 ## Intake Schema
 
@@ -182,22 +184,22 @@ A Run that enumerates the complete current Route selection. Previously delivered
 
 An explicit operator Run that enumerates the complete current Route selection and writes every matching Delivery Item again, including unchanged items. It retains stable Delivery Item identities, verifies ownership, and uses create-or-update semantics; it never deletes target content.
 
-## Transformation (planned runtime behavior)
+## Transformation
 
 A named, allowlisted, deterministic conversion that makes source content
 portable while remaining independent of the target's native editorial model.
-Route Revisions currently reserve transformation configuration, but execution
-is not implemented. A future Transformation may invoke a core operation or a
-declared Processor component; its identifier and configuration will be
-immutable Route Revision data.
+Route Revisions store an ordered chain of versioned built-in operations as
+immutable data. CourierCMS applies the chain after mapping and before hashing
+and canonical-document construction.
 
-## Processor (planned runtime capability)
+## Processor
 
 A bounded content operation such as OCR, image metadata extraction, or document
-parsing. A Processor may be supplied by a trusted native Extension. It exposes a
-declared input/output contract and cannot inject arbitrary Route workflow
-steps. The SDK vocabulary reserves this component kind, but the current
-package loader and execution pipeline do not yet run Processor components.
+parsing. A Processor is supplied by a trusted native Extension. A Route Revision
+stores its ordered component reference, exact component version, input/output
+paths, data-only configuration, and fail policy. Runs pin the exact Extension
+package checksum before executing it through the Extension Gateway. A Processor
+cannot inject arbitrary Route workflow steps.
 
 ## Delivery success
 

@@ -33,6 +33,7 @@ defmodule CourierCMS.Execution.RunItem do
     belongs_to :run, Run
     belongs_to :route_item, RouteItem
     has_many :run_item_assets, CourierCMS.Assets.RunItemAsset
+    has_many :processor_executions, CourierCMS.Execution.ProcessorExecution
 
     timestamps()
   end

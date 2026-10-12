@@ -5,9 +5,8 @@
 
 [ADR-0019](0019-local-and-server-release-profiles.md) amends PostgreSQL-specific
 wording for Local, which stores durable configuration and history in SQLite.
-[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) records that
-the SDK reserves Processor vocabulary but the current loader and execution
-pipeline support Adapter components only.
+[ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) records the
+bounded Processor contract now supported by the loader and execution pipeline.
 
 ## Context
 

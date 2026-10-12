@@ -14,7 +14,7 @@ find "$install_path" -maxdepth 1 -type f -name '*.couriercms' -delete
   MIX_ENV=prod mix compile --warnings-as-errors
 )
 
-projects="wordpress sanity"
+projects="content wordpress sanity"
 if [ "$include_fake" = "--include-fake" ]; then
   projects="$projects fake"
 fi

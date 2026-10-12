@@ -67,7 +67,7 @@ CourierCMS owns:
 - CMS-specific, bounded assembly of referenced source content
 - Mapping to a versioned delivery contract
 - Building and validating the complete Canonical Delivery Document
-- Planned target-independent Transformations and Extension Processors
+- Allowlisted target-independent built-in Transformations and Extension Processors
 - Reliable Delivery Asset handling as it becomes available
 - Deterministically deriving configured Projection Fields from that document
 - Reliable create/update delivery
@@ -109,7 +109,7 @@ Two Routes in opposite directions are independent and dangerous. The UI should w
 6. **Target autonomy.** Target workflows remain outside CourierCMS.
 7. **Deterministic execution.** Approved mappings run predictably; enrichment records its configuration and version.
 8. **Self-hosted by default.** Credentials and content remain inside the customer's deployment boundary, apart from calls to configured CMS platforms.
-9. **Extensible deliberately.** Adapters, transformations, planned Processors,
+9. **Extensible deliberately.** Adapters, transformations, Processors,
    and optional CMS Connectors have focused contracts.
 10. **Operational clarity.** Every delivery has an understandable status and history.
 11. **Canonical first.** The complete JSON delivery is always retained; target-native projections are disposable, reproducible conveniences.
@@ -141,6 +141,7 @@ automation valid CourierCMS endpoints.
 - Aggregate author, taxonomy, body, and featured image data per post.
 - Create one Sanity Delivery Item per source item and locale, then update it for later revisions.
 - Preserve the complete canonical JSON in every Sanity Delivery Item and prove optional projected fields match it.
+- Apply ordered, versioned portable Transformations before hashing and delivery.
 - Replay without duplicates.
 - Retry transient failures without failing unrelated items.
 - Display Run and Run Item history.
@@ -156,8 +157,7 @@ Adapter and returns it through the bounded Content Bundle contract. When both
 Adapters support the optional asset callbacks, the platform persists,
 transfers, retries, binds, and reconciles Delivery Assets independently before
 delivering dependent items. The official WordPress source and Sanity target
-implement the independent featured-image path; other Adapter combinations may
+implement independent featured- and inline-image paths; other Adapter combinations may
 still use an Adapter-specific fallback until they adopt the contract.
-Extension Processor execution is an accepted next capability, not a claim about
-the current runtime. See
+Built-in Transformation and Extension Processor execution are implemented. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).

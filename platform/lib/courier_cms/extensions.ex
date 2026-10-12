@@ -282,11 +282,14 @@ defmodule CourierCMS.Extensions do
         revision.source_extension_id,
         revision.source_component_id,
         revision.target_extension_id,
-        revision.target_component_id
+        revision.target_component_id,
+        revision.processors
       })
       |> Repo.all()
-      |> Enum.flat_map(fn {source_extension, source_component, target_extension, target_component} ->
-        [{source_extension, source_component}, {target_extension, target_component}]
+      |> Enum.flat_map(fn {source_extension, source_component, target_extension, target_component,
+                           processors} ->
+        [{source_extension, source_component}, {target_extension, target_component}] ++
+          processor_references(processors)
       end)
 
     (connection_refs ++ route_refs)
@@ -306,21 +309,25 @@ defmodule CourierCMS.Extensions do
       revision.source_extension_id,
       revision.source_component_id,
       revision.target_extension_id,
-      revision.target_component_id
+      revision.target_component_id,
+      revision.processors
     })
     |> Repo.all()
-    |> Enum.flat_map(fn {source_extension, source_component, target_extension, target_component} ->
-      [{source_extension, source_component}, {target_extension, target_component}]
+    |> Enum.flat_map(fn {source_extension, source_component, target_extension, target_component,
+                         processors} ->
+      [{source_extension, source_component}, {target_extension, target_component}] ++
+        processor_references(processors)
     end)
   end
 
   defp unfinished_artifact_errors do
     Run
     |> where([run], run.status in ^@unfinished_run_statuses)
-    |> select([run], {run.id, run.source_artifact, run.target_artifact})
+    |> select([run], {run.id, run.source_artifact, run.target_artifact, run.processor_artifacts})
     |> Repo.all()
-    |> Enum.flat_map(fn {run_id, source_artifact, target_artifact} ->
-      [{:source, source_artifact}, {:target, target_artifact}]
+    |> Enum.flat_map(fn {run_id, source_artifact, target_artifact, processor_artifacts} ->
+      ([{:source, source_artifact}, {:target, target_artifact}] ++
+         Enum.map(processor_artifacts || [], &{:processor, &1}))
       |> Enum.flat_map(fn {capability, artifact} ->
         case Gateway.validate_artifact(artifact, capability) do
           {:ok, _reference} -> []
@@ -344,11 +351,7 @@ defmodule CourierCMS.Extensions do
       on: revision.id == route.current_revision_id
     )
     |> maybe_workspace(:route, workspace_id)
-    |> where(
-      [_route, revision],
-      revision.source_extension_id == ^extension_id or
-        revision.target_extension_id == ^extension_id
-    )
+    |> where(^route_reference(extension_id))
     |> maybe_enabled(:route, enabled_only)
     |> Repo.aggregate(:count, :id)
   end
@@ -386,6 +389,50 @@ defmodule CourierCMS.Extensions do
           )
       )
     end
+  end
+
+  defp route_processor_reference(extension_id) do
+    if CourierCMS.ReleaseProfile.local?() do
+      dynamic(
+        [_route, revision],
+        fragment(
+          "EXISTS (SELECT 1 FROM json_each(?) AS processor WHERE json_extract(processor.value, '$.extension_id') = ?)",
+          revision.processors,
+          ^extension_id
+        )
+      )
+    else
+      dynamic(
+        [_route, revision],
+        fragment(
+          "EXISTS (SELECT 1 FROM unnest(?) AS processor WHERE processor->>'extension_id' = ?)",
+          revision.processors,
+          ^extension_id
+        )
+      )
+    end
+  end
+
+  defp route_reference(extension_id) do
+    processor_reference = route_processor_reference(extension_id)
+
+    dynamic(
+      [_route, revision],
+      revision.source_extension_id == ^extension_id or
+        revision.target_extension_id == ^extension_id or ^processor_reference
+    )
+  end
+
+  defp processor_references(processors) do
+    Enum.flat_map(processors || [], fn processor ->
+      case {processor["extension_id"], processor["component_id"]} do
+        {extension_id, component_id} when is_binary(extension_id) and is_binary(component_id) ->
+          [{extension_id, component_id}]
+
+        _other ->
+          []
+      end
+    end)
   end
 
   defp maybe_workspace(query, _binding, nil), do: query

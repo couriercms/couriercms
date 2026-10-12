@@ -3,7 +3,7 @@ defmodule CourierCMS.Extensions.NativeAdapterProjectsTest do
 
   alias CourierCMS.ExtensionSDK.Manifest
 
-  @projects ~w(fake wordpress sanity)
+  @projects ~w(content fake wordpress sanity)
 
   test "extension projects depend only on the public SDK boundary" do
     for project <- @projects,
@@ -46,13 +46,16 @@ defmodule CourierCMS.Extensions.NativeAdapterProjectsTest do
       Path.expand("../../../../extensions/*/couriercms-extension.json", __DIR__)
       |> Path.wildcard()
       |> Enum.map(fn path ->
-        path
-        |> File.read!()
-        |> Jason.decode!()
-        |> Map.fetch!("extensionId")
-        |> String.split(".")
-        |> List.last()
+        manifest = path |> File.read!() |> Jason.decode!()
+
+        if Enum.any?(manifest["components"], &(&1["kind"] == "adapter")) do
+          manifest
+          |> Map.fetch!("extensionId")
+          |> String.split(".")
+          |> List.last()
+        end
       end)
+      |> Enum.reject(&is_nil/1)
 
     patterns =
       implementation_names

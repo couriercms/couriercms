@@ -14,6 +14,8 @@ defmodule CourierCMSExtension.WordPress.Source do
     SourceIdentity
   }
 
+  alias CourierCMSExtension.WordPress.InlineImages
+
   @default_page_size 50
 
   @impl true
@@ -133,7 +135,7 @@ defmodule CourierCMSExtension.WordPress.Source do
       "publish_events" => true,
       "locales" => false,
       "revisions" => "published_modified_timestamp",
-      "assets" => "featured_image_descriptor"
+      "assets" => "featured_and_inline_image_descriptors"
     }
   end
 
@@ -292,6 +294,8 @@ defmodule CourierCMSExtension.WordPress.Source do
     terms = embedded |> Map.get("wp:term", []) |> List.flatten()
     media = embedded |> Map.get("wp:featuredmedia", []) |> List.first() |> normalize_media()
 
+    body = content_value(post)
+
     root = %ContentNode{
       identity: identity,
       source_type: "post",
@@ -301,7 +305,7 @@ defmodule CourierCMSExtension.WordPress.Source do
         "title" => rendered(post, "title") |> plain_text(),
         "slug" => post["slug"],
         "excerpt" => rendered(post, "excerpt") |> plain_text(),
-        "body" => %{"format" => "html", "value" => content_value(post)},
+        "body" => %{"format" => "html", "value" => body},
         "canonical_url" => post["link"],
         "published_at" => iso_datetime(post["date_gmt"]),
         "modified_at" => DateTime.to_iso8601(identity.modified_at),
@@ -319,26 +323,89 @@ defmodule CourierCMSExtension.WordPress.Source do
 
     ContentBundle.new(%{
       root: root,
-      assets: asset_descriptors(media),
+      assets: asset_descriptors(media, body),
       metadata: %{"adapter" => "wordpress"}
     })
   end
 
-  defp asset_descriptors(nil), do: []
+  defp asset_descriptors(media, body) do
+    featured =
+      if media do
+        [
+          %AssetDescriptor{
+            source_key: media["source_id"],
+            field_path: "fields.featured_image",
+            filename: media["filename"],
+            media_type: media["media_type"],
+            required: true,
+            retrieval: %{"kind" => "url", "url" => media["source_url"]},
+            metadata:
+              media
+              |> Map.take(["width", "height", "alt", "caption", "source_url"])
+              |> Map.put("usage", "featured_image")
+          }
+        ]
+      else
+        []
+      end
 
-  defp asset_descriptors(media) do
-    [
-      %AssetDescriptor{
-        source_key: media["source_id"],
-        field_path: "fields.featured_image",
-        filename: media["filename"],
-        media_type: media["media_type"],
-        required: true,
-        retrieval: %{"kind" => "url", "url" => media["source_url"]},
-        metadata: Map.take(media, ["width", "height", "alt", "caption"])
-      }
-    ]
+    featured_url = media && media["source_url"]
+
+    (featured ++ inline_asset_descriptors(body, featured_url))
+    |> Enum.uniq_by(&AssetDescriptor.identity/1)
   end
+
+  defp inline_asset_descriptors(body, featured_url) when is_binary(body) do
+    body
+    |> InlineImages.extract()
+    |> Enum.map(&inline_image/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(&1.retrieval["url"] == featured_url))
+    |> Enum.uniq_by(& &1.retrieval["url"])
+  end
+
+  defp inline_asset_descriptors(_body, _featured_url), do: []
+
+  defp inline_image(attributes) when is_map(attributes) do
+    url = attributes["src"]
+
+    if deliverable_asset_url?(url) do
+      url_hash = :crypto.hash(:sha256, url) |> Base.encode16(case: :lower)
+
+      %AssetDescriptor{
+        source_key: inline_source_key(attributes["class"], url_hash),
+        variant_key: "inline-" <> String.slice(url_hash, 0, 16),
+        filename: filename(url),
+        required: true,
+        retrieval: %{"kind" => "url", "url" => url},
+        metadata:
+          %{
+            "usage" => "inline_html",
+            "source_url" => url,
+            "alt" => plain_text(attributes["alt"])
+          }
+          |> compact()
+      }
+    end
+  end
+
+  defp inline_image(_node), do: nil
+
+  defp inline_source_key(classes, fallback) when is_binary(classes) do
+    case Regex.run(~r/(?:^|\s)wp-image-(\d+)(?:\s|$)/, classes) do
+      [_match, id] -> id
+      _other -> "url-" <> fallback
+    end
+  end
+
+  defp inline_source_key(_classes, fallback), do: "url-" <> fallback
+
+  defp deliverable_asset_url?(url) when is_binary(url) and url != "" do
+    uri = URI.parse(url)
+    uri.scheme in ["http", "https"] and is_binary(uri.host) and uri.host != ""
+  end
+
+  defp deliverable_asset_url?(_url), do: false
 
   defp validate_selection(selection) do
     cond do

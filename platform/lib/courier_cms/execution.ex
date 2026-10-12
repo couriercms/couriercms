@@ -27,6 +27,7 @@ defmodule CourierCMS.Execution do
     AssetWorker,
     JobArgs,
     PlanRunWorker,
+    ProcessorExecution,
     Retry,
     Run,
     RunItem
@@ -34,6 +35,8 @@ defmodule CourierCMS.Execution do
 
   alias CourierCMS.Installation
   alias CourierCMS.Mapping
+  alias CourierCMS.Processors
+  alias CourierCMS.Transformations
   alias CourierCMS.Destinations.Destination
   alias CourierCMS.Ownership.{DeliveryBinding, RouteItem}
   alias CourierCMS.Repo
@@ -44,6 +47,7 @@ defmodule CourierCMS.Execution do
 
   @checkpoint_overlap_seconds 120
   @run_item_page_size 50
+  @processor_execution_page_limit 500
   @run_item_statuses [:pending, :processing, :succeeded, :retrying, :failed, :skipped, :cancelled]
   @run_asset_page_size 50
   @run_asset_statuses [
@@ -55,6 +59,7 @@ defmodule CourierCMS.Execution do
     :skipped,
     :cancelled
   ]
+  @resolved_asset_references_key "couriercms_resolved_asset_references"
 
   def list_runs(%Scope{} = scope, limit \\ 50) do
     Run
@@ -155,6 +160,7 @@ defmodule CourierCMS.Execution do
       |> limit(^page_size)
       |> offset(^((page - 1) * page_size))
       |> Repo.all()
+      |> load_processor_executions()
 
     %{
       items: items,
@@ -180,6 +186,33 @@ defmodule CourierCMS.Execution do
     else
       where(query, [item], ilike(item.source_item_key, ^pattern))
     end
+  end
+
+  defp load_processor_executions([]), do: []
+
+  defp load_processor_executions(items) do
+    item_ids = Enum.map(items, & &1.id)
+
+    executions_by_item =
+      ProcessorExecution
+      |> where([execution], execution.run_item_id in ^item_ids)
+      |> order_by([execution],
+        desc: execution.attempt,
+        desc: execution.position,
+        desc: execution.inserted_at
+      )
+      |> limit(^@processor_execution_page_limit)
+      |> Repo.all()
+      |> Enum.group_by(& &1.run_item_id)
+
+    Enum.map(items, fn item ->
+      executions =
+        executions_by_item
+        |> Map.get(item.id, [])
+        |> Enum.sort_by(&{&1.attempt, &1.position, &1.inserted_at}, :asc)
+
+      %{item | processor_executions: executions}
+    end)
   end
 
   @doc "Returns one bounded, workspace-scoped page of Delivery Assets for a Run."
@@ -292,8 +325,26 @@ defmodule CourierCMS.Execution do
            ]),
          :ok <- CourierCMS.Transport.ContentBundleValidator.validate(bundle),
          {:ok, payload} <-
-           Mapping.apply(bundle, Keyword.get(opts, :mapping, route.current_revision.mapping)) do
-      hash = content_hash(bundle.root.identity, route.current_revision.contract_version, payload)
+           Mapping.apply(bundle, Keyword.get(opts, :mapping, route.current_revision.mapping)),
+         {:ok, payload} <-
+           Transformations.apply(
+             payload,
+             Keyword.get(opts, :transformations, route.current_revision.transformations)
+           ),
+         {:ok, payload} <-
+           Processors.apply(
+             payload,
+             Keyword.get(opts, :processors, route.current_revision.processors)
+           ) do
+      asset_references = asset_references(bundle, route.id)
+
+      hash =
+        content_hash(
+          bundle.root.identity,
+          route.current_revision.contract_version,
+          payload,
+          asset_references
+        )
 
       envelope = %DeliveryEnvelope{
         installation_id: Installation.id(),
@@ -309,7 +360,7 @@ defmodule CourierCMS.Execution do
         content_hash: hash
       }
 
-      canonical_document = CanonicalDeliveryDocument.build(envelope, payload)
+      canonical_document = CanonicalDeliveryDocument.build(envelope, payload, asset_references)
 
       delivery_name =
         DeliveryName.resolve(
@@ -541,7 +592,7 @@ defmodule CourierCMS.Execution do
 
   defp do_plan_run(run, attempt, max_attempts) do
     with {:ok, run} <- ensure_run_artifacts(run),
-         {:ok, source, _target} <- execution_references(run) do
+         {:ok, source, _target, _processors} <- execution_references(run) do
       run =
         update_run(run, %{
           status: :planning,
@@ -597,8 +648,8 @@ defmodule CourierCMS.Execution do
     else
       with {:ok, _run} <- ensure_run_artifacts(run_item.run),
            run_item <- load_run_item!(run_item_id),
-           {:ok, source, target} <- execution_references(run_item.run) do
-        process_run_item_with_lock(run_item, source, target, attempt, max_attempts)
+           {:ok, source, target, processors} <- execution_references(run_item.run) do
+        process_run_item_with_lock(run_item, source, target, processors, attempt, max_attempts)
       else
         {:error, %AdapterError{} = error} ->
           record_item_error(run_item, :failed, error)
@@ -615,7 +666,7 @@ defmodule CourierCMS.Execution do
     else
       with {:ok, _run} <- ensure_run_artifacts(run_asset.run),
            run_asset <- load_run_asset!(run_asset_id),
-           {:ok, source, target} <- execution_references(run_asset.run) do
+           {:ok, source, target, _processors} <- execution_references(run_asset.run) do
         process_run_asset_with_lock(run_asset, source, target, attempt, max_attempts)
       else
         {:error, %AdapterError{} = error} ->
@@ -699,7 +750,7 @@ defmodule CourierCMS.Execution do
   defp terminal_asset?(run_asset),
     do: run_asset.status in [:succeeded, :skipped, :failed, :cancelled]
 
-  defp process_run_item_with_lock(run_item, source, target, attempt, max_attempts) do
+  defp process_run_item_with_lock(run_item, source, target, processors, attempt, max_attempts) do
     owner_token = Ecto.UUID.generate()
     ttl_ms = Application.fetch_env!(:couriercms, :delivery_lock_ttl_ms)
 
@@ -712,7 +763,9 @@ defmodule CourierCMS.Execution do
             [run_item.run.route.source_connection, run_item.run.route.target_connection],
             owner_token,
             ttl_ms,
-            fn -> do_process_run_item(run_item, source, target, attempt, max_attempts) end
+            fn ->
+              do_process_run_item(run_item, source, target, processors, attempt, max_attempts)
+            end
           )
         after
           DeliveryLock.release(run_item.delivery_key, owner_token)
@@ -724,14 +777,16 @@ defmodule CourierCMS.Execution do
     end
   end
 
-  defp do_process_run_item(run_item, source, target, attempt, max_attempts) do
+  defp do_process_run_item(run_item, source, target, processors, attempt, max_attempts) do
     if terminal_item?(run_item) do
       :ok
     else
+      delivery_attempt = max(run_item.attempt_count + 1, attempt)
+
       run_item =
         transition_run_item(run_item, %{
           status: :processing,
-          attempt_count: attempt,
+          attempt_count: delivery_attempt,
           started_at: run_item.started_at || DateTime.utc_now(),
           error_category: nil,
           error_summary: nil
@@ -740,7 +795,7 @@ defmodule CourierCMS.Execution do
       broadcast(run_item.run_id)
 
       started_at = System.monotonic_time()
-      result = deliver(run_item, source, target)
+      result = deliver(run_item, source, target, processors, delivery_attempt)
       emit_delivery_duration(run_item, result, started_at)
 
       case result do
@@ -1056,7 +1111,7 @@ defmodule CourierCMS.Execution do
     |> Repo.one()
   end
 
-  defp deliver(run_item, source, target) do
+  defp deliver(run_item, source, target, processors, delivery_attempt) do
     run = run_item.run
     route_item = Repo.get!(RouteItem, run_item.route_item_id)
 
@@ -1070,12 +1125,30 @@ defmodule CourierCMS.Execution do
       if source_read_skippable?(source, run, route_item, binding, identity) do
         {:skip, route_item, binding.last_content_hash}
       else
-        read_and_deliver(run_item, source, target, identity, route_item, binding)
+        read_and_deliver(
+          run_item,
+          source,
+          target,
+          processors,
+          delivery_attempt,
+          identity,
+          route_item,
+          binding
+        )
       end
     end
   end
 
-  defp read_and_deliver(run_item, source, target, identity, route_item, binding) do
+  defp read_and_deliver(
+         run_item,
+         source,
+         target,
+         processors,
+         delivery_attempt,
+         identity,
+         route_item,
+         binding
+       ) do
     run = run_item.run
     route = run.route
     revision = run.route_revision
@@ -1088,10 +1161,24 @@ defmodule CourierCMS.Execution do
            ]),
          :ok <- CourierCMS.Transport.ContentBundleValidator.validate(bundle),
          {:ok, bundle} <- prepare_bundle_assets(run_item, source, target, bundle),
-         {:ok, payload} <- Mapping.apply(bundle, revision.mapping) do
-      content_hash = content_hash(bundle.root.identity, revision.contract_version, payload)
+         {:ok, payload} <- Mapping.apply(bundle, revision.mapping),
+         {:ok, payload} <- Transformations.apply(payload, revision.transformations),
+         {:ok, payload} <-
+           Processors.apply(payload, revision.processors, processors,
+             observer: processor_observer(run_item, delivery_attempt)
+           ) do
+      asset_references = asset_references(bundle, route.id)
+
+      content_hash =
+        content_hash(
+          bundle.root.identity,
+          revision.contract_version,
+          payload,
+          asset_references
+        )
+
       envelope = envelope(run_item, bundle.root.source_type, bundle.root.identity, content_hash)
-      canonical_document = CanonicalDeliveryDocument.build(envelope, payload)
+      canonical_document = CanonicalDeliveryDocument.build(envelope, payload, asset_references)
 
       delivery_name =
         DeliveryName.resolve(
@@ -1132,6 +1219,86 @@ defmodule CourierCMS.Execution do
       end
     end
   end
+
+  defp processor_observer(run_item, attempt) do
+    fn
+      :started, evidence -> start_processor_execution(run_item.id, attempt, evidence)
+      :finished, evidence -> finish_processor_execution(run_item.id, attempt, evidence)
+    end
+  end
+
+  defp start_processor_execution(run_item_id, attempt, evidence) do
+    now = DateTime.utc_now()
+
+    Repo.transaction(fn ->
+      ProcessorExecution
+      |> where(
+        [execution],
+        execution.run_item_id == ^run_item_id and execution.status == :processing and
+          execution.attempt < ^attempt
+      )
+      |> Repo.update_all(
+        set: [
+          status: :failed,
+          error_category: "interrupted",
+          error_summary: "Processor execution was interrupted before completion",
+          retryable: true,
+          completed_at: now,
+          updated_at: now
+        ]
+      )
+
+      %ProcessorExecution{}
+      |> ProcessorExecution.changeset(
+        evidence
+        |> Map.put(:run_item_id, run_item_id)
+        |> Map.put(:attempt, attempt)
+      )
+      |> Repo.insert!()
+    end)
+
+    :ok
+  rescue
+    _exception -> processor_evidence_error()
+  end
+
+  defp finish_processor_execution(run_item_id, attempt, evidence) do
+    execution =
+      Repo.get_by!(ProcessorExecution,
+        run_item_id: run_item_id,
+        attempt: attempt,
+        position: evidence.position
+      )
+
+    execution
+    |> ProcessorExecution.changeset(%{
+      status: evidence.status,
+      output_hash: evidence.output_hash,
+      output_bytes: evidence.output_bytes,
+      duration_us: evidence.duration_us,
+      error_category: evidence.error_category,
+      error_summary: bounded_error_summary(evidence.error_summary),
+      retryable: evidence.retryable,
+      completed_at: evidence.completed_at
+    })
+    |> Repo.update!()
+
+    :ok
+  rescue
+    _exception -> processor_evidence_error()
+  end
+
+  defp processor_evidence_error do
+    {:error,
+     AdapterError.new(
+       :internal,
+       "Processor execution evidence could not be recorded",
+       retryable: true
+     )}
+  end
+
+  defp bounded_error_summary(nil), do: nil
+  defp bounded_error_summary(summary), do: summary |> to_string() |> String.slice(0, 500)
 
   defp prepare_bundle_assets(_run_item, _source, _target, %ContentBundle{assets: []} = bundle),
     do: {:ok, bundle}
@@ -1227,6 +1394,18 @@ defmodule CourierCMS.Execution do
   defp put_asset_reference(bundle, descriptor, asset_key, binding) do
     path = descriptor.field_path || "$assets"
 
+    manifest_reference = asset_reference(descriptor, asset_key, binding)
+
+    resolved =
+      bundle.metadata
+      |> Map.get(@resolved_asset_references_key, %{})
+      |> Map.put(asset_reference_key(descriptor), manifest_reference)
+
+    bundle = %{
+      bundle
+      | metadata: Map.put(bundle.metadata, @resolved_asset_references_key, resolved)
+    }
+
     if String.starts_with?(path, "fields.") do
       segments = path |> String.replace_prefix("fields.", "") |> String.split(".")
 
@@ -1247,6 +1426,41 @@ defmodule CourierCMS.Execution do
       bundle
     end
   end
+
+  defp asset_references(%ContentBundle{} = bundle, route_id) do
+    resolved = Map.get(bundle.metadata, @resolved_asset_references_key, %{})
+
+    bundle.assets
+    |> Enum.map(fn descriptor ->
+      Map.get_lazy(resolved, asset_reference_key(descriptor), fn ->
+        asset_reference(
+          descriptor,
+          DeliveryAsset.key(route_id, descriptor.source_key, descriptor.variant_key),
+          nil
+        )
+      end)
+    end)
+    |> Enum.sort_by(&{&1["sourceKey"], &1["variantKey"]})
+  end
+
+  defp asset_reference(descriptor, asset_key, binding) do
+    %{
+      "couriercmsAssetKey" => asset_key,
+      "sourceKey" => descriptor.source_key,
+      "variantKey" => descriptor.variant_key,
+      "filename" => descriptor.filename,
+      "mediaType" => descriptor.media_type,
+      "checksum" => (binding && binding.last_content_hash) || descriptor.checksum,
+      "targetReference" => binding && binding.target_reference,
+      "required" => descriptor.required,
+      "sourceUrl" => descriptor.metadata["source_url"],
+      "metadata" => descriptor.metadata
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp asset_reference_key(descriptor),
+    do: {descriptor.source_key, descriptor.variant_key}
 
   defp put_asset_path(fields, [key], reference) do
     existing = Map.get(fields, key)
@@ -2521,8 +2735,8 @@ defmodule CourierCMS.Execution do
     }
   end
 
-  defp content_hash(identity, contract_version, payload) do
-    %{identity: identity, contract_version: contract_version, payload: payload}
+  defp content_hash(identity, contract_version, payload, assets) do
+    %{identity: identity, contract_version: contract_version, payload: payload, assets: assets}
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
@@ -2560,12 +2774,13 @@ defmodule CourierCMS.Execution do
 
   defp run_artifact_attributes(revision) do
     with {:ok, source_artifact} <- Gateway.artifact(revision_source_reference(revision)),
-         {:ok, target_artifact} <- Gateway.artifact(revision_target_reference(revision)) do
+         {:ok, target_artifact} <- Gateway.artifact(revision_target_reference(revision)),
+         {:ok, processor_artifacts} <- processor_artifacts(revision.processors) do
       {:ok,
        %{
          source_artifact: source_artifact,
          target_artifact: target_artifact,
-         processor_artifacts: []
+         processor_artifacts: processor_artifacts
        }}
     else
       :error ->
@@ -2581,10 +2796,15 @@ defmodule CourierCMS.Execution do
   # a database lock, before they perform any more work. Completed historical
   # Runs remain truthful: they do not claim evidence that was never recorded.
   defp ensure_run_artifacts(%Run{source_artifact: source, target_artifact: target} = run)
-       when is_map(source) and is_map(target),
-       do: {:ok, run}
+       when is_map(source) and is_map(target) do
+    if length(run.processor_artifacts || []) == length(run.route_revision.processors || []),
+      do: {:ok, run},
+      else: pin_run_artifacts(run)
+  end
 
-  defp ensure_run_artifacts(%Run{} = run) do
+  defp ensure_run_artifacts(%Run{} = run), do: pin_run_artifacts(run)
+
+  defp pin_run_artifacts(%Run{} = run) do
     result =
       Repo.transaction(fn ->
         locked_run =
@@ -2594,7 +2814,9 @@ defmodule CourierCMS.Execution do
           |> Repo.one!()
           |> Repo.preload(:route_revision)
 
-        if is_map(locked_run.source_artifact) and is_map(locked_run.target_artifact) do
+        if is_map(locked_run.source_artifact) and is_map(locked_run.target_artifact) and
+             length(locked_run.processor_artifacts || []) ==
+               length(locked_run.route_revision.processors || []) do
           locked_run
         else
           case run_artifact_attributes(locked_run.route_revision) do
@@ -2617,9 +2839,52 @@ defmodule CourierCMS.Execution do
 
   defp execution_references(%Run{} = run) do
     with {:ok, source} <- Gateway.validate_artifact(run.source_artifact, :source),
-         {:ok, target} <- Gateway.validate_artifact(run.target_artifact, :target) do
-      {:ok, source, target}
+         {:ok, target} <- Gateway.validate_artifact(run.target_artifact, :target),
+         :ok <- validate_processor_artifacts(run.processor_artifacts) do
+      {:ok, source, target, run.processor_artifacts}
     end
+  end
+
+  defp processor_artifacts(processors) do
+    Enum.reduce_while(processors, {:ok, []}, fn processor, {:ok, artifacts} ->
+      reference = %{
+        extension_id: processor["extension_id"],
+        component_id: processor["component_id"]
+      }
+
+      case Gateway.artifact(reference) do
+        {:ok, artifact} ->
+          if artifact["version"] == processor["component_version"],
+            do: {:cont, {:ok, [artifact | artifacts]}},
+            else: {:halt, :error}
+
+        _other ->
+          {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, artifacts} -> {:ok, Enum.reverse(artifacts)}
+      :error -> :error
+    end
+  end
+
+  defp validate_processor_artifacts(artifacts) when is_list(artifacts) do
+    if Enum.all?(artifacts, &match?({:ok, _}, Gateway.validate_artifact(&1, :processor))),
+      do: :ok,
+      else:
+        {:error,
+         AdapterError.new(
+           :unsupported,
+           "The Run requires a Processor artifact that is not installed on this node"
+         )}
+  end
+
+  defp validate_processor_artifacts(_artifacts) do
+    {:error,
+     AdapterError.new(
+       :unsupported,
+       "The Run requires a Processor artifact that is not installed on this node"
+     )}
   end
 
   defp revision_source_reference(revision) do

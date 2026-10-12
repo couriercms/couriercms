@@ -80,7 +80,45 @@ defmodule CourierCMSWeb.RunLiveTest do
     assert render(view) =~ "delivery-pipeline.jpg"
   end
 
-  defp route_fixture(scope) do
+  test "shows durable Processor diagnostics with the bounded item page", %{
+    conn: conn,
+    scope: scope
+  } do
+    route =
+      route_fixture(scope, %{
+        processors: [
+          %{
+            "kind" => "processor",
+            "extension_id" => "com.couriercms.fake",
+            "component_id" => "fake_prefix",
+            "input_path" => "title",
+            "output_path" => "title",
+            "config" => %{"prefix" => "Processed: "},
+            "failure_policy" => "fail"
+          }
+        ]
+      })
+
+    {:ok, run} = Execution.start_manual_run(scope, route.id)
+    assert :ok = Execution.plan_run(run.id)
+
+    item =
+      scope
+      |> Execution.list_run_items(run.id, source_query: "102")
+      |> Map.fetch!(:items)
+      |> List.first()
+
+    assert :ok = Execution.process_run_item(item.id, 1, 3)
+
+    {:ok, view, _html} = live(conn, ~p"/runs/#{run.id}")
+    view |> element("#show-delivery-items") |> render_click()
+
+    assert has_element?(view, "[id^=processor-execution-]")
+    assert render(view) =~ "com.couriercms.fake/fake_prefix"
+    assert render(view) =~ "attempt 1"
+  end
+
+  defp route_fixture(scope, revision_attrs \\ %{}) do
     source = connection_fixture(scope, "Run UI source", "fake_source")
     target = connection_fixture(scope, "Run UI target", "fake_target")
     destination = destination_fixture(scope, target)
@@ -95,10 +133,13 @@ defmodule CourierCMSWeb.RunLiveTest do
           current_destination_id: destination.id,
           enabled: true
         },
-        %{
-          selection: %{"category" => "Engineering", "tags" => ["architecture"]},
-          mapping: CourierCMS.Routes.default_mapping("fake_source")
-        }
+        Map.merge(
+          %{
+            selection: %{"category" => "Engineering", "tags" => ["architecture"]},
+            mapping: CourierCMS.Routes.default_mapping("fake_source")
+          },
+          revision_attrs
+        )
       )
 
     route

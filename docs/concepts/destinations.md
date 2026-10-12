@@ -163,5 +163,8 @@ Destination.
 Required Delivery Assets must be accepted before their dependent Delivery Item
 can succeed. CourierCMS never deletes target assets. Asset identities and item
 dependencies are persisted. Independent jobs, retries, and target-reference
-injection are still planned; currently supported production media is handled
-during the parent Delivery Item attempt.
+injection are implemented. The complete Canonical Delivery Document includes an
+ordered asset manifest containing stable source identity and the resolved
+Destination reference. Target-owned hooks may use it to rewrite URLs or build a
+native content model; CourierCMS does not mutate rendered HTML into a
+target-specific representation.

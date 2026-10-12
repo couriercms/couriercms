@@ -92,8 +92,8 @@ Owns configured Adapter instances, endpoints, non-secret settings, encrypted cre
 
 Owns Routes, immutable Route Revisions, source selections, aggregation
 configuration, payload contracts, Delivery Item naming configuration, and
-trigger policy. Content Bundle validation and root mapping are implemented;
-Extension Processor execution is an accepted next-stage capability.
+trigger policy. Content Bundle validation, root mapping, versioned built-in
+Transformations, and version-pinned Extension Processors are implemented.
 
 Mutable Route identity is limited to operator-facing name and active state.
 Changing selection, aggregation, mapping, projections, transformations, or
@@ -140,11 +140,11 @@ Durable records use stable Extension/component IDs.
 
 ### Transformations
 
-Will own built-in allowlisted transformations and native Processor execution,
-including versioned configuration, resource limits, and result metadata.
-Processor vocabulary exists in the SDK, but Processor packages and execution
-are not supported by the current runtime. Target-native business
-transformations remain outside CourierCMS.
+Owns ordered built-in allowlisted Transformations and Extension Processors,
+including immutable versioned configuration, exact Run artifact evidence,
+bounded execution, and safe failure reporting. They run after mapping and
+before content hashing and canonical-document construction. Target-native business transformations remain
+outside CourierCMS.
 
 ### Ownership
 
@@ -182,6 +182,7 @@ platform/
 extensions/
   sdk/
   fake/
+  content/
   wordpress/
   sanity/
 connectors/
@@ -221,14 +222,14 @@ Extension architecture. Segmented-network support requires a separate decision.
 3. Execution durably records discovered work.
 4. The source Adapter reads and assembles the normalized root content.
 5. CourierCMS validates the returned content and builds the Delivery Contract payload.
-6. CourierCMS combines the stable envelope and complete payload into the Canonical Delivery Document.
+6. CourierCMS combines the stable envelope, complete payload, and ordered resolved asset manifest into the Canonical Delivery Document.
 7. Configured Projection Fields are derived from that same document and validated; they never become a second source of truth.
 8. When both Adapters support the independent asset contract, CourierCMS
    schedules, retries, binds, and reconciles Delivery Assets before resuming the
    dependent item; otherwise the Adapter may retain its documented in-item
    asset behavior.
-9. CourierCMS injects successful asset target references at the bundle's
-   declared payload paths.
+9. CourierCMS injects successful asset target references at declared payload
+   paths and records every reference in the canonical asset manifest.
 10. CourierCMS derives a recognizable, collision-safe flat Delivery Item name
     from the Route Revision's naming field and immutable Delivery Item key.
 11. The target Adapter resolves or creates the Delivery Item and writes the canonical document plus any projections atomically where the CMS permits.
@@ -240,8 +241,8 @@ The bounded Content Bundle and independent Delivery Asset execution are
 implemented foundations. The fake Extension validates the full portable path,
 and the official WordPress source and Sanity target implement it for featured
 images. Other Adapters must adopt and test the callbacks before advertising
-them. The accepted next execution stage adds platform-invoked
-target-independent Processors. See
+them. Platform-invoked target-independent Processors cover specialized portable
+content work. See
 [ADR-0020](../adr/0020-delivery-boundary-content-bundles-and-assets.md).
 
 ## Extension boundaries
@@ -250,12 +251,11 @@ target-independent Processors. See
 - **Adapter:** one CMS's API and semantics
 - **CMS Connector:** optional installed CMS companion
 - **Transformation:** small field conversion
-- **Processor:** planned bounded, target-independent content operation
+- **Processor:** bounded, target-independent Extension content operation
 
-Adapters are components in trusted, precompiled OTP Extensions loaded when the
-CourierCMS node starts. The accepted architecture also permits Processor
-components, but the current loader rejects them until execution support is
-implemented. One version of an Extension ID is installed at a time.
+Adapters and Processors are components in trusted, precompiled OTP Extensions
+loaded when the CourierCMS node starts. One version of an Extension ID is
+installed at a time.
 Installation and upgrade use a controlled restart, not hot reload. The
 Extension Gateway resolves stable identifiers through a node-local ETS registry
 and calls the validated module directly.

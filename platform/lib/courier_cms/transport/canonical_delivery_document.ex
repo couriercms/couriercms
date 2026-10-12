@@ -3,13 +3,18 @@ defmodule CourierCMS.Transport.CanonicalDeliveryDocument do
 
   alias CourierCMS.ExtensionSDK.DeliveryEnvelope
 
-  @spec build(DeliveryEnvelope.t(), map()) :: map()
-  def build(%DeliveryEnvelope{} = envelope, payload) when is_map(payload) do
+  @spec build(DeliveryEnvelope.t(), map(), [map()]) :: map()
+  def build(%DeliveryEnvelope{} = envelope, payload, assets \\ [])
+      when is_map(payload) and is_list(assets) do
     %{
       "couriercms" => envelope_map(envelope),
       "payload" => payload
     }
+    |> maybe_put_assets(assets)
   end
+
+  defp maybe_put_assets(document, []), do: document
+  defp maybe_put_assets(document, assets), do: Map.put(document, "assets", assets)
 
   defp envelope_map(envelope) do
     identity = envelope.source_identity

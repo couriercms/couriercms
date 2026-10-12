@@ -517,10 +517,6 @@ defmodule CourierCMS.Extensions.Package do
   end
 
   defp build_component_entry!(manifest, declaration, package_modules, package_checksum) do
-    if declaration.kind != :adapter do
-      raise ArgumentError, "Processor packages are not supported by this runtime milestone"
-    end
-
     module = String.to_atom("Elixir." <> declaration.module)
 
     unless module in package_modules do
@@ -547,16 +543,26 @@ defmodule CourierCMS.Extensions.Package do
       raise ArgumentError, "component capabilities do not match its manifest"
     end
 
-    source = if "source" in declaration.capabilities, do: module
-    target = if "target" in declaration.capabilities, do: module
+    artifact = CourierCMS.Extensions.Artifact.packaged(expected, package_checksum)
 
-    if is_nil(source) and is_nil(target) do
-      raise ArgumentError, "Adapter component must declare source or target capability"
+    case declaration.kind do
+      :adapter ->
+        source = if "source" in declaration.capabilities, do: module
+        target = if "target" in declaration.capabilities, do: module
+
+        if is_nil(source) and is_nil(target) do
+          raise ArgumentError, "Adapter component must declare source or target capability"
+        end
+
+        ComponentEntry.build!(declaration.id, source, target, expected, artifact: artifact)
+
+      :processor ->
+        unless declaration.capabilities == ["processor"] do
+          raise ArgumentError, "Processor component must declare only processor capability"
+        end
+
+        ComponentEntry.build_processor!(module, expected, artifact: artifact)
     end
-
-    ComponentEntry.build!(declaration.id, source, target, expected,
-      artifact: CourierCMS.Extensions.Artifact.packaged(expected, package_checksum)
-    )
   end
 
   defp deactivate(app, code_path) do

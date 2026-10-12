@@ -9,9 +9,9 @@ Extension runtime decision is superseded by
 
 [ADR-0020](0020-delivery-boundary-content-bundles-and-assets.md) clarifies that
 target-native behavior is simply outside CourierCMS; **Target Consumer** is no
-longer a platform/domain term. It also records Processor execution as accepted
-but not yet implemented. The current runtime also does not yet apply the
-built-in Transformation configuration reserved by Route Revisions.
+longer a platform/domain term. The runtime applies ordered built-in
+Transformations and version-pinned Extension Processors from immutable Route
+Revisions.
 
 ## Context
 

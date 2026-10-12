@@ -2,8 +2,9 @@ defmodule CourierCMS.Extensions.ComponentEntry do
   @moduledoc false
 
   alias CourierCMS.Adapters.Definition
-  alias CourierCMS.ExtensionSDK.{Component, SourceAdapter, TargetAdapter}
+  alias CourierCMS.ExtensionSDK.{Component, Processor, SourceAdapter, TargetAdapter}
   alias CourierCMS.Extensions.Artifact
+  alias CourierCMS.Processors.Definition, as: ProcessorDefinition
 
   def build!(adapter_key, source_module, target_module, expected_component \\ nil, opts \\ []) do
     modules = [source_module, target_module] |> Enum.reject(&is_nil/1) |> Enum.uniq()
@@ -45,7 +46,37 @@ defmodule CourierCMS.Extensions.ComponentEntry do
       artifact: artifact,
       definition: definition,
       source_module: source_module,
-      target_module: target_module
+      target_module: target_module,
+      processor_module: nil
+    }
+  end
+
+  def build_processor!(module, expected_component \\ nil, opts \\ []) do
+    component = component!(module)
+
+    if expected_component && component != expected_component do
+      raise ArgumentError, "loaded component identity does not match its manifest"
+    end
+
+    unless component.kind == :processor and :processor in component.capabilities do
+      raise ArgumentError, "Processor component must declare processor kind and capability"
+    end
+
+    validate_behaviour!(module, Processor)
+    definition = module.definition()
+
+    ProcessorDefinition.validate!(definition)
+
+    artifact = Keyword.get(opts, :artifact) || Artifact.bundled(component, [module])
+
+    %{
+      adapter_key: component.component_id,
+      component: component,
+      artifact: artifact,
+      definition: definition,
+      source_module: nil,
+      target_module: nil,
+      processor_module: module
     }
   end
 
@@ -69,6 +100,10 @@ defmodule CourierCMS.Extensions.ComponentEntry do
       raise ArgumentError, "#{inspect(module)} does not declare #{capability} capability"
     end
 
+    validate_behaviour!(module, behaviour)
+  end
+
+  defp validate_behaviour!(module, behaviour) do
     optional = behaviour.behaviour_info(:optional_callbacks)
 
     behaviour.behaviour_info(:callbacks)

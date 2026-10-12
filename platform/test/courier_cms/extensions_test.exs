@@ -13,7 +13,7 @@ defmodule CourierCMS.ExtensionsTest do
     fake = Enum.find(inventory.extensions, &(&1.extension_id == "com.couriercms.fake"))
 
     assert fake.status == :loaded
-    assert Enum.map(fake.components, & &1.id) == ["fake_source", "fake_target"]
+    assert Enum.map(fake.components, & &1.id) == ["fake_prefix", "fake_source", "fake_target"]
     assert fake.references.connections >= 2
     assert fake.references.enabled_connections >= 2
     assert fake.references.routes >= 1

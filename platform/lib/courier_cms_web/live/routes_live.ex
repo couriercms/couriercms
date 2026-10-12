@@ -2,7 +2,7 @@ defmodule CourierCMSWeb.RoutesLive do
   use CourierCMSWeb, :live_view
   on_mount {CourierCMSWeb.UserAuth, {:require_role, [:owner, :admin]}}
 
-  alias CourierCMS.{Connections, Destinations, Mapping, Routes}
+  alias CourierCMS.{Connections, Destinations, Mapping, Processors, Routes, Transformations}
   alias CourierCMS.Adapters.Definition
   alias CourierCMS.ExtensionSDK.AdapterError
   alias CourierCMS.Extensions.Gateway
@@ -74,11 +74,15 @@ defmodule CourierCMSWeb.RoutesLive do
          {:ok, selection} <-
            Definition.cast_selection(source.adapter_key, params["selection"] || %{}),
          {:ok, mapping} <- Mapping.parse(params["mapping"]),
+         {:ok, transformations} <- Transformations.parse(params["transformations"]),
+         {:ok, processors} <- Processors.parse(params["processors"]),
          {:ok, projections} <- Projection.parse(params["projections"]),
          {:ok, route} <-
            Routes.create_route(socket.assigns.current_scope, route_attrs, %{
              selection: selection,
              mapping: mapping,
+             transformations: transformations,
+             processors: processors,
              projections: projections,
              delivery_name_path: params["delivery_name_path"] || "payload.title"
            }) do
@@ -109,6 +113,8 @@ defmodule CourierCMSWeb.RoutesLive do
       "enabled" => "false",
       "selection" => Definition.default_selection(source_key),
       "mapping" => source_key |> Definition.default_mapping() |> Mapping.format(),
+      "transformations" => "",
+      "processors" => "",
       "projections" => target_key |> Definition.default_projections() |> Projection.format(),
       "current_destination_id" => first_available_destination_id(destinations, target),
       "delivery_name_path" => "payload.title"
@@ -329,6 +335,35 @@ defmodule CourierCMSWeb.RoutesLive do
                   label="Mapping (payload_path=source_path)"
                   class="textarea textarea-bordered w-full font-mono text-xs"
                 />
+              </div>
+              <div class="sm:col-span-2">
+                <.input
+                  field={@form[:transformations]}
+                  type="textarea"
+                  rows="5"
+                  label="Portable transformations (output=input|operation)"
+                  placeholder="title=title|string.trim\nslug=title|string.slug"
+                  class="textarea textarea-bordered w-full font-mono text-xs"
+                />
+                <p class="mt-1 text-xs text-base-content/55">
+                  Optional ordered operations applied after mapping. Available operations: {Enum.join(
+                    Transformations.operations(),
+                    ", "
+                  )}.
+                </p>
+              </div>
+              <div class="sm:col-span-2">
+                <.input
+                  field={@form[:processors]}
+                  type="textarea"
+                  rows="4"
+                  label="Extension Processors (output=input|extension/component|JSON)"
+                  placeholder={"title=title|com.example.content/title_cleanup|{\"mode\":\"portable\"}"}
+                  class="textarea textarea-bordered w-full font-mono text-xs"
+                />
+                <p class="mt-1 text-xs text-base-content/55">
+                  Optional ordered, installed Processor components. Their exact package versions are pinned to each Run.
+                </p>
               </div>
               <div class="sm:col-span-2">
                 <.input

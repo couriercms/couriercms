@@ -12,8 +12,10 @@ defmodule CourierCMS.Routes do
   alias CourierCMS.Connections.Connection
   alias CourierCMS.Destinations.Destination
   alias CourierCMS.Mapping
+  alias CourierCMS.Processors
   alias CourierCMS.Repo
   alias CourierCMS.Storage
+  alias CourierCMS.Transformations
   alias CourierCMS.Routes.{Route, RouteRevision}
 
   @polling_modes ["incremental", "full"]
@@ -113,6 +115,54 @@ defmodule CourierCMS.Routes do
   def update_mapping(%Scope{}, %Route{}, _mapping),
     do: {:error, "Mapping configuration is invalid."}
 
+  def update_transformations(%Scope{} = scope, %Route{} = route, transformations)
+      when is_list(transformations) do
+    with :ok <- Accounts.authorize(scope, [:owner, :admin]),
+         true <- route.workspace_id == scope.workspace.id,
+         :ok <- Transformations.validate(transformations) do
+      route = Repo.preload(route, :current_revision)
+      current = route.current_revision
+
+      values =
+        revision_values(route, current,
+          transformations: transformations,
+          contract_version: current.contract_version + 1
+        )
+
+      insert_revision(route, values)
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  def update_transformations(%Scope{}, %Route{}, _transformations),
+    do: {:error, "Transformation configuration is invalid."}
+
+  def update_processors(%Scope{} = scope, %Route{} = route, processors)
+      when is_list(processors) do
+    with :ok <- Accounts.authorize(scope, [:owner, :admin]),
+         true <- route.workspace_id == scope.workspace.id,
+         {:ok, processors} <- Processors.prepare(processors) do
+      route = Repo.preload(route, :current_revision)
+      current = route.current_revision
+
+      values =
+        revision_values(route, current,
+          processors: processors,
+          contract_version: current.contract_version + 1
+        )
+
+      insert_revision(route, values)
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  def update_processors(%Scope{}, %Route{}, _processors),
+    do: {:error, "Processor configuration is invalid."}
+
   def update_schedule(%Scope{} = scope, %Route{} = route, enabled, interval_minutes)
       when is_boolean(enabled) and interval_minutes in [5, 15, 30, 60, 360, 1_440] do
     update_schedule(scope, route, enabled, interval_minutes, "incremental", 1_440)
@@ -160,6 +210,7 @@ defmodule CourierCMS.Routes do
         delivery_contract: current.delivery_contract,
         contract_version: current.contract_version,
         transformations: current.transformations,
+        processors: current.processors,
         trigger_settings: trigger_settings
       }
 
@@ -211,6 +262,7 @@ defmodule CourierCMS.Routes do
           delivery_contract: current.delivery_contract,
           contract_version: current.contract_version + 1,
           transformations: current.transformations,
+          processors: current.processors,
           trigger_settings: current.trigger_settings
         }
 
@@ -263,6 +315,11 @@ defmodule CourierCMS.Routes do
     selection = Map.get(revision_attrs, :selection, Map.get(revision_attrs, "selection", %{}))
     mapping = Map.get(revision_attrs, :mapping, Map.get(revision_attrs, "mapping"))
 
+    transformations =
+      Map.get(revision_attrs, :transformations, Map.get(revision_attrs, "transformations", []))
+
+    processors = Map.get(revision_attrs, :processors, Map.get(revision_attrs, "processors", []))
+
     with {:ok, source_connection_id} <- cast_binary_id(source_connection_id),
          {:ok, target_connection_id} <- cast_binary_id(target_connection_id),
          {:ok, destination_id} <- cast_binary_id(destination_id),
@@ -278,6 +335,8 @@ defmodule CourierCMS.Routes do
          {:ok, selection} <- Definition.cast_selection(source.adapter_key, selection),
          mapping <- mapping || Definition.default_mapping(source.adapter_key),
          :ok <- Mapping.validate(mapping),
+         :ok <- CourierCMS.Transformations.validate(transformations),
+         {:ok, processors} <- Processors.prepare(processors),
          :ok <- validate_target_projections(target, projections) do
       Repo.transaction(fn ->
         destination =
@@ -307,7 +366,8 @@ defmodule CourierCMS.Routes do
                  source,
                  target,
                  selection,
-                 mapping
+                 mapping,
+                 processors
                ),
              {:ok, revision} <-
                %RouteRevision{} |> RouteRevision.changeset(revision_attrs) |> Repo.insert(),
@@ -346,7 +406,8 @@ defmodule CourierCMS.Routes do
          source,
          target,
          selection,
-         mapping
+         mapping,
+         processors
        ) do
     values = %{
       route_id: route.id,
@@ -373,7 +434,8 @@ defmodule CourierCMS.Routes do
           Definition.default_delivery_contract(source.adapter_key)
         ),
       contract_version: 1,
-      transformations: [],
+      transformations: Map.get(attrs, :transformations, Map.get(attrs, "transformations", [])),
+      processors: processors,
       trigger_settings: %{"manual" => true}
     }
 
@@ -396,6 +458,7 @@ defmodule CourierCMS.Routes do
       delivery_contract: Keyword.get(overrides, :delivery_contract, current.delivery_contract),
       contract_version: Keyword.get(overrides, :contract_version, current.contract_version),
       transformations: Keyword.get(overrides, :transformations, current.transformations),
+      processors: Keyword.get(overrides, :processors, current.processors),
       trigger_settings: Keyword.get(overrides, :trigger_settings, current.trigger_settings)
     }
   end

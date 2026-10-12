@@ -1,5 +1,5 @@
 defmodule CourierCMS.Adapters.DefinitionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias CourierCMS.Adapters.Definition
   alias CourierCMS.Extensions.Gateway
@@ -17,6 +17,9 @@ defmodule CourierCMS.Adapters.DefinitionTest do
     components = Gateway.components()
 
     assert Enum.map(components, &{&1.extension_id, &1.component_id}) == [
+             {"com.couriercms.content", "exact_token_replacer"},
+             {"com.couriercms.content", "html_text_normalizer"},
+             {"com.couriercms.fake", "fake_prefix"},
              {"com.couriercms.fake", "fake_source"},
              {"com.couriercms.fake", "fake_target"},
              {"com.couriercms.sanity", "sanity"},
@@ -26,6 +29,11 @@ defmodule CourierCMS.Adapters.DefinitionTest do
     assert {:ok, wordpress} = Gateway.fetch_component("wordpress")
     assert wordpress.version == "0.1.0"
     assert :source in wordpress.capabilities
+  end
+
+  test "official Content Processors are target-independent components" do
+    assert Enum.sort(Enum.map(Gateway.processor_definitions(), & &1.component_id)) ==
+             ~w(exact_token_replacer fake_prefix html_text_normalizer)
   end
 
   test "source defaults and target projections come from Adapter definitions" do

@@ -104,7 +104,9 @@ batch size have bounded deployment defaults. Configure them with
 `COURIERCMS_DELIVERY_MAX_ATTEMPTS`, `COURIERCMS_PLANNING_MAX_ATTEMPTS`,
 `COURIERCMS_DELIVERY_BACKOFF_CAP_SECONDS`,
 `COURIERCMS_PLANNING_BACKOFF_CAP_SECONDS`, `COURIERCMS_MAX_PLANNING_PAGES`, and
-`COURIERCMS_RETENTION_BATCH_SIZE`. Per-Connection concurrency remains the normal CMS
+`COURIERCMS_RETENTION_BATCH_SIZE`. Trusted Processor callbacks default to a
+30-second bound configured with `COURIERCMS_PROCESSOR_TIMEOUT_MS` and share the
+canonical delivery-size limit for inputs and outputs. Per-Connection concurrency remains the normal CMS
 load-control mechanism; its absolute safety ceiling is not a deployment tuning
 knob.
 
@@ -184,9 +186,13 @@ At minimum emit metrics for:
 - Rate-limit responses
 - Webhook accepted/rejected/deduplicated counts
 - Checkpoint lag
-- Processor duration and failures, once Processor execution is implemented
+- Processor duration, input/output size, result category, and failures
 
 Metric labels use low-cardinality Adapter/operation/status values, not item IDs, URLs, content, or credentials.
+Run Item reports also expose durable, content-free Processor execution records.
+These records follow Run retention and are loaded as a bounded recent set for
+item-level diagnosis;
+metrics remain the bounded source for fleet-wide monitoring.
 
 ## Alerts
 

@@ -37,6 +37,9 @@ defmodule CourierCMSWeb.RoutesLiveTest do
           "published_year" => "2026"
         },
         "mapping" => "headline=fields.title\nslug=fields.slug",
+        "transformations" => "headline=headline|string.trim\nslug=headline|string.slug",
+        "processors" =>
+          "headline=headline|com.couriercms.fake/fake_prefix|{\"prefix\":\"CMS: \"}",
         "projections" => ""
       }
     })
@@ -47,6 +50,15 @@ defmodule CourierCMSWeb.RoutesLiveTest do
     assert route.enabled
     assert route.current_revision.selection["tags"] == ["architecture", "elixir"]
     assert route.current_revision.mapping["headline"] == "fields.title"
+
+    assert Enum.map(route.current_revision.transformations, & &1["operation"]) == [
+             "string.trim",
+             "string.slug"
+           ]
+
+    assert [processor] = route.current_revision.processors
+    assert processor["component_id"] == "fake_prefix"
+    assert processor["component_version"] == "0.1.0"
   end
 
   test "rejects malformed mapping instead of silently dropping it", %{conn: conn, scope: scope} do

@@ -42,6 +42,12 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
           |> Plug.Conn.put_resp_content_type("image/jpeg")
           |> Plug.Conn.put_resp_header("content-length", "11")
           |> Plug.Conn.send_resp(200, "image-bytes")
+
+        "/wp-content/uploads/inline-diagram.png" ->
+          conn
+          |> Plug.Conn.put_resp_content_type("image/png")
+          |> Plug.Conn.put_resp_header("content-length", "12")
+          |> Plug.Conn.send_resp(200, "inline-image")
       end
     end)
 
@@ -211,11 +217,17 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
              "caption" => "Delivery pipeline"
            }
 
-    assert [asset] = bundle.assets
+    assert [asset, inline_asset] = bundle.assets
     assert asset.source_key == "501"
     assert asset.field_path == "fields.featured_image"
     assert asset.required
     assert asset.retrieval["url"] == node.fields["featured_image"]["source_url"]
+    assert inline_asset.source_key == "777"
+    assert inline_asset.variant_key =~ "inline-"
+    assert inline_asset.field_path == nil
+    assert inline_asset.required
+    assert inline_asset.metadata["usage"] == "inline_html"
+    assert inline_asset.metadata["source_url"] =~ "inline-diagram.png"
   end
 
   test "rejects unsupported source scope", %{connection: connection} do
@@ -228,7 +240,7 @@ defmodule CourierCMSExtension.WordPress.SourceTest do
   test "streams a featured image through the asset contract", %{connection: connection} do
     {:ok, %{items: [identity]}} = Source.enumerate(connection, %{}, nil)
     assert {:ok, bundle} = Source.read_root(connection, identity, %{})
-    assert [descriptor] = bundle.assets
+    descriptor = Enum.find(bundle.assets, &(&1.source_key == "501"))
 
     assert {:ok, content} = Source.read_asset(connection, descriptor)
     assert content.byte_size == 11

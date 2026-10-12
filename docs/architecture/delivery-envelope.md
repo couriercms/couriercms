@@ -82,11 +82,28 @@ The Canonical Delivery Document is the complete, authoritative JSON value delive
     "deliveredAt": "2026-09-24T14:05:00Z",
     "contentHash": "sha256:..."
   },
+  "assets": [
+    {
+      "couriercmsAssetKey": "...",
+      "sourceKey": "777",
+      "variantKey": "inline-...",
+      "sourceUrl": "https://source.example/image.png",
+      "targetReference": "...",
+      "required": true,
+      "metadata": {"usage": "inline_html"}
+    }
+  ],
   "payload": {}
 }
 ```
 
-The `couriercms` object is the Delivery Envelope and `payload` is the Delivery Payload. Exact target field names may differ, but the Adapter must retain this complete document in the Delivery Item and preserve these semantics. A target representation may use a native arbitrary-value field or canonical UTF-8 JSON text.
+The `couriercms` object is the Delivery Envelope, `payload` is the Delivery
+Payload, and the optional top-level `assets` array is the authoritative ordered
+manifest of Delivery Asset source identities and resolved Destination
+references. Exact target field names may differ, but the Adapter must retain
+this complete document in the Delivery Item and preserve these semantics. A
+target representation may use a native arbitrary-value field or canonical
+UTF-8 JSON text.
 
 Adapter-specific ownership, lookup, preview, and asset fields may duplicate values outside this document. Optional Projection Fields may also duplicate configured paths. These fields are indexes or conveniences; the Canonical Delivery Document remains the source of truth.
 
@@ -140,12 +157,15 @@ checksum, retries independently, reuses verified bindings, gates dependent
 items, injects target references at declared payload paths, and reconciles
 stranded work. These semantics activate only when both configured Adapters
 advertise the optional asset callbacks. The official WordPress-to-Sanity path
-uses them for featured images. Run pages expose asset summary counters, bounded
-filtered details, safe errors, target references, and retry controls.
+uses them for featured and inline images. Rendered source HTML remains
+unchanged; the manifest gives target-owned hooks the explicit source URL and
+target reference needed for deterministic URL rewriting. Run pages expose asset
+summary counters, bounded filtered details, safe errors, target references, and
+retry controls.
 
 ## Validation and hashing
 
-CourierCMS validates the mapped payload and complete Canonical Delivery Document before making a target call. The content hash is calculated from a canonical representation of delivery-relevant envelope fields and payload, excluding volatile delivery timestamps.
+CourierCMS validates the mapped payload and complete Canonical Delivery Document before making a target call. The content hash is calculated from a canonical representation of delivery-relevant envelope fields, payload, and ordered Delivery Asset manifest, excluding volatile delivery timestamps.
 
 Identical hashes may be skipped safely when the target binding and ownership evidence are intact.
 

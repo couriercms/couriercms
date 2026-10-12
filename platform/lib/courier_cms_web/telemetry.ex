@@ -82,6 +82,15 @@ defmodule CourierCMSWeb.Telemetry do
         tags: [:adapter, :status],
         unit: {:native, :millisecond}
       ),
+      counter("couriercms.processor.execute.count",
+        tags: [:component_id, :status, :error_category]
+      ),
+      summary("couriercms.processor.execute.duration",
+        tags: [:component_id, :status],
+        unit: {:native, :millisecond}
+      ),
+      summary("couriercms.processor.execute.input_bytes", tags: [:component_id, :status]),
+      summary("couriercms.processor.execute.output_bytes", tags: [:component_id, :status]),
       counter("couriercms.delivery.lock_contention.count"),
       counter("couriercms.connection.saturated.count"),
       counter("couriercms.alert.enqueue_failed.count"),

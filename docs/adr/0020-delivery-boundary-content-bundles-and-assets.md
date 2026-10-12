@@ -75,9 +75,9 @@ ordering, version evidence, limits, errors, retries, and execution history.
 Adapters do not invoke Processors directly. Processors cannot call target
 Adapters or introduce arbitrary workflow steps.
 
-Processor execution is an accepted design but is not implemented in the
-current runtime. Documentation and UI must not present it as available until
-the package validator, gateway, execution pipeline, and tests support it.
+Processor execution is implemented through the package validator, Component
+Registry, Extension Gateway, immutable Route Revisions, exact Run artifact
+evidence, preview, and per-item execution path.
 
 ### Delivery Assets
 
@@ -118,8 +118,9 @@ retry action that also requeues affected required Delivery Items.
 - Assets can retry, deduplicate, reconcile, and record failures independently
   without weakening Delivery Item reliability.
 - An Adapter must pass the asset contract tests before advertising the
-  independent pipeline. Processor execution must be implemented and tested
-  before it is advertised as a current capability.
+  independent pipeline. A Processor must pass manifest, configuration,
+  deterministic execution, artifact-pinning, limit, and failure tests before
+  it is advertised as a current capability.
 
 ## Alternatives considered
 

@@ -227,7 +227,7 @@ persists dependencies and jobs atomically, retries asset work independently,
 reconciles stranded jobs, and injects the returned reference before item
 delivery. An official Adapter must pass the relevant contract and integration
 tests before advertising these callbacks. The official WordPress source and
-Sanity target implement the contract for featured images; Sanity retains a
+Sanity target implement the contract for featured and inline images; Sanity retains a
 documented public-URL fallback when no independent target reference is present.
 
 ## Versioning

@@ -2,12 +2,15 @@ defmodule CourierCMSExtension.FakeTest do
   use ExUnit.Case, async: false
 
   alias CourierCMS.ExtensionSDK.{AssetDescriptor, DeliveryEnvelope, SourceIdentity}
-  alias CourierCMSExtension.Fake.{Source, Target}
+  alias CourierCMSExtension.Fake.{PrefixProcessor, Source, Target}
 
   test "declares development source and target components" do
     assert Source.component().extension_id == "com.couriercms.fake"
     assert Target.component().extension_id == "com.couriercms.fake"
     assert Target.idempotency_strategy() == :deterministic_id
+    assert PrefixProcessor.component().kind == :processor
+    assert :ok = PrefixProcessor.validate_config(%{"prefix" => "CMS: "})
+    assert {:ok, "CMS: title"} = PrefixProcessor.process("title", %{"prefix" => "CMS: "})
   end
 
   test "creates, finds, and updates a deterministic delivery" do

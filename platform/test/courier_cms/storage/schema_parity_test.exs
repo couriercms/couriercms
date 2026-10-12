@@ -8,7 +8,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     audit_events checkpoints connection_leases connection_rate_buckets
     connections connector_events delivery_asset_bindings delivery_assets
     delivery_bindings delivery_locks destinations route_items route_revisions
-    routes run_assets run_item_assets run_items runs users users_tokens
+    routes processor_executions run_assets run_item_assets run_items runs users users_tokens
     worker_heartbeats workspace_memberships workspaces
   )
 
@@ -35,8 +35,10 @@ defmodule CourierCMS.Storage.SchemaParityTest do
       ~w(id workspace_id target_connection_id owner_route_id name scope scope_key lifecycle_status validation_status ownership_evidence last_validation_error validated_at first_delivered_at retired_at inserted_at updated_at),
     "route_items" =>
       ~w(id route_id source_item_key locale_key source_revision_key state last_source_modified_at last_source_change_token inserted_at updated_at),
+    "processor_executions" =>
+      ~w(id run_item_id attempt position extension_id component_id component_version input_path output_path config_hash input_hash output_hash input_bytes output_bytes duration_us status error_category error_summary retryable started_at completed_at inserted_at updated_at),
     "route_revisions" =>
-      ~w(id route_id revision_number selection aggregation_rules mapping delivery_contract contract_version transformations trigger_settings checksum projections source_extension_id source_component_id target_extension_id target_component_id delivery_name_path inserted_at),
+      ~w(id route_id revision_number selection aggregation_rules mapping delivery_contract contract_version transformations processors trigger_settings checksum projections source_extension_id source_component_id target_extension_id target_component_id delivery_name_path inserted_at),
     "routes" =>
       ~w(id workspace_id name source_connection_id target_connection_id enabled archived_at inserted_at updated_at current_revision_id current_destination_id),
     "run_assets" =>
@@ -75,6 +77,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     destinations_owner_route_id_index destinations_target_connection_id_lifecycle_status_index
     destinations_workspace_id_name_index
     route_items_logical_identity_index
+    processor_executions_run_item_id_attempt_position_index
+    processor_executions_run_item_id_status_index
     route_revisions_route_id_checksum_index route_revisions_route_id_revision_number_index
     route_revisions_source_extension_id_source_component_id_index
     route_revisions_target_extension_id_target_component_id_index
@@ -99,7 +103,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     positive_slot_number supported_connector_contract_version valid_connector_event_status
     valid_delivery_asset_binding_state valid_delivery_asset_state
     valid_delivery_binding_state valid_destination_lifecycle valid_destination_validation
-    valid_membership_role valid_membership_status valid_route_item_state valid_run_item_status
+    valid_membership_role valid_membership_status valid_processor_execution_status
+    valid_route_item_state valid_run_item_status
     valid_run_asset_status valid_run_status valid_trigger_kind
   )
 
@@ -130,6 +135,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     {"route_items", "route_id", "routes", "RESTRICT"},
     {"run_items", "run_id", "runs", "CASCADE"},
     {"run_items", "route_item_id", "route_items", "SET NULL"},
+    {"processor_executions", "run_item_id", "run_items", "CASCADE"},
     {"delivery_assets", "route_id", "routes", "RESTRICT"},
     {"run_assets", "run_id", "runs", "CASCADE"},
     {"run_assets", "delivery_asset_id", "delivery_assets", "RESTRICT"},
@@ -168,6 +174,9 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     destinations.first_delivered_at destinations.retired_at
     route_items.last_source_modified_at route_items.last_source_change_token
     routes.current_revision_id routes.archived_at
+    processor_executions.output_hash processor_executions.output_bytes
+    processor_executions.duration_us processor_executions.error_category
+    processor_executions.error_summary processor_executions.completed_at
     run_items.route_item_id run_items.planned_operation run_items.error_category
     run_items.error_summary run_items.content_hash run_items.started_at run_items.completed_at
     run_items.source_modified_at run_items.source_change_token
@@ -195,6 +204,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "route_revisions.mapping" => :empty_map,
     "route_revisions.delivery_contract" => :empty_map,
     "route_revisions.transformations" => :empty_list,
+    "route_revisions.processors" => :empty_list,
     "route_revisions.trigger_settings" => :empty_map,
     "route_revisions.projections" => :empty_list,
     "route_revisions.delivery_name_path" => "payload.title",
@@ -223,6 +233,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     "runs.planning_complete" => false,
     "runs.processor_artifacts" => :empty_list,
     "route_items.state" => "pending",
+    "processor_executions.status" => "processing",
+    "processor_executions.retryable" => false,
     "run_items.status" => "pending",
     "run_items.attempt_count" => 0,
     "run_items.source_state" => "published",
@@ -252,7 +264,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     revision_number contract_version runs_started items_discovered items_succeeded
     items_failed items_retrying items_skipped assets_discovered assets_succeeded
     assets_failed assets_retrying assets_skipped planning_page attempt_count slot_number
-    request_count
+    request_count attempt position
   )
 
   @map_columns ~w(
@@ -261,7 +273,7 @@ defmodule CourierCMS.Storage.SchemaParityTest do
     source_artifact target_artifact value
   )
 
-  @list_map_columns ~w(transformations projections processor_artifacts extension_set)
+  @list_map_columns ~w(transformations processors projections processor_artifacts extension_set)
   @list_text_columns ~w(queues)
 
   test "the selected database exposes the shared logical schema contract" do
@@ -462,8 +474,8 @@ defmodule CourierCMS.Storage.SchemaParityTest do
       column == "id" or column in @binary_id_columns -> :binary_id
       String.ends_with?(column, "_at") -> :datetime
       column in @integer_columns -> :integer
-      column in ["bucket", "byte_size"] -> :bigint
-      column in ["enabled", "planning_complete", "required"] -> :boolean
+      column in ["bucket", "byte_size", "input_bytes", "output_bytes", "duration_us"] -> :bigint
+      column in ["enabled", "planning_complete", "required", "retryable"] -> :boolean
       column in ["credentials", "token"] -> :binary
       column in @map_columns -> :map
       column in @list_map_columns -> :list_map

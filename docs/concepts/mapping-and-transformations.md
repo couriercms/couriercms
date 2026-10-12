@@ -2,11 +2,10 @@
 
 ## Implementation status
 
-Declarative mapping and Projection Fields are implemented. Route Revisions
-persist transformation configuration, but the current execution pipeline does
-not yet apply built-in Transformations or invoke Extension Processors. The
-Transformation and Processor sections below describe the accepted boundary for
-that planned implementation.
+Declarative mapping, built-in Transformations, Extension Processors, and
+Projection Fields are implemented. Route Revisions persist ordered built-in
+and Processor chains that run after mapping and before content hashing and
+canonical-document construction.
 
 ## Mapping target
 
@@ -73,19 +72,32 @@ integrations when repeatedly parsing JSON would be inconvenient. They are not
 mappings into the target's native editorial model. Any native target modeling
 or post-delivery behavior is independently owned by the target environment.
 
-## Transformations (planned execution)
+## Transformations
 
 Transformations make source content portable enough to enter the Canonical Delivery Document. They do not convert it into the target customer's native editorial or business model.
 
-Common transformations may be built into the CourierCMS release. They are named,
-allowlisted, deterministic, versioned operations such as:
+The current CourierCMS release provides these named, allowlisted,
+deterministic, version-1 operations:
 
-- string to slug
-- date normalization
-- URL normalization
-- concatenation
-- safe HTML cleanup or extraction of plain text
-- normalization into a target-independent rich-text representation
+- `string.trim`
+- `string.lowercase`
+- `string.slug`
+- `datetime.iso8601`
+- `url.normalize`
+
+The Route form uses one ordered definition per line:
+
+```text
+output_path=input_path|operation
+title=title|string.trim
+slug=title|string.slug
+published_at=published_at|datetime.iso8601
+```
+
+Each operation reads the current payload, so a later line can consume the
+output of an earlier line. Definitions are stored as structured immutable Route
+Revision data with explicit kind, operation, version, input path, output path,
+and configuration. The current built-ins do not accept configuration.
 
 Transformation configuration is stored in a Route Revision. Errors identify the transformation and safe field path without logging the value.
 
@@ -96,23 +108,27 @@ rewriting copy, translating content, or generating embeddings is outside the
 CourierCMS delivery boundary by default.
 
 Route configuration never contains transformation source code or scripts.
-Common small operations should first be implemented and tested in the core;
-specialized target-independent work may eventually use a declared native
-Extension Processor loaded through the normal startup package lifecycle.
+Common small operations are implemented and tested in the core; specialized
+target-independent work may use a declared native Extension Processor loaded
+through the normal startup package lifecycle.
 
-## Processors (planned)
+## Processors
 
-The architecture below is accepted, but Processor packages are not yet
-accepted or executed by the current platform runtime.
+Processor packages are validated, registered, previewed, and executed by the
+current platform runtime.
 
-Processors handle heavier deterministic work such as OCR, image metadata extraction, PDF parsing, or archive extraction. Processor execution records:
+Processors handle specialized deterministic work. The current JSON-value
+contract is appropriate for conversions such as source HTML cleanup, shortcode
+expansion, or portable rich-text normalization. File/native workloads such as
+OCR, binary metadata extraction, PDF parsing, or archive extraction require a
+future explicit file-processing contract. Processor evidence and telemetry cover:
 
 - processor name and version
-- configuration version
+- immutable Route Revision configuration and its hash
 - input hash
 - output hash
-- duration
-- retryability and sanitized error
+- input/output sizes and callback duration
+- retryability and sanitized per-item error
 
 Processors are the customization boundary for customer-specific or specialized
 target-independent transformation work. A Processor is a component in a trusted
@@ -122,8 +138,9 @@ configuration. CPU-heavy, native, untrusted, or scheduler-blocking processing is
 outside the initial native Extension contract and requires a separate ADR.
 
 Processors are declarative from the Route's point of view: Extension/component
-identifier, input/output paths, configuration, limits, and failure policy are
-versioned in the Route Revision. They cannot access CourierCMS's database through
+identifier, exact component version, input/output paths, JSON configuration,
+and the fail policy are versioned in the Route Revision. Runs additionally pin
+the exact package checksum and SDK/runtime evidence. They cannot access CourierCMS's database through
 the SDK, execute arbitrary workflow steps, call target Adapters, or receive
 unrelated credentials.
 
@@ -136,6 +153,42 @@ AI enrichment is outside the current CourierCMS delivery boundary. Introducing
 AI into that path would require a new ADR that addresses non-determinism,
 provider/model and prompt versions, input/output retention, approval policy,
 replay, privacy, cost, and failure semantics.
+
+The Route UI provides a guided editor driven by configuration metadata from the
+installed Processor Extension. It adds or edits validated steps in an ordered
+draft and supports reordering or removal before saving. The operator can preview
+the complete draft against one matching source item without writing to the
+Destination, then save it as a new immutable Route Revision.
+
+The underlying portable representation remains one ordered Processor per line
+and is available for advanced editing:
+
+```text
+output_path=input_path|extension_id/component_id|{JSON configuration}
+body=body|com.example.documents/html_cleanup|{"preserveLinks":true}
+```
+
+CourierCMS bundles conservative
+[Content Processors](../extensions/content-processors.md) for text-level HTML
+normalization and exact literal-token replacement. They are deliberately not a
+universal HTML sanitizer or shortcode interpreter.
+
+The WordPress Adapter reads the REST API's rendered content. CourierCMS does not
+re-run WordPress shortcodes or plugin callbacks because their authoritative
+behavior remains inside WordPress. Unsupported shortcode text that survives the
+rendered response may use explicit exact-token replacement or a deliberately
+specified WordPress Processor; the platform does not guess its semantics.
+
+CourierCMS validates configuration with the installed component before saving,
+limits input and output to the delivery-size boundary, enforces a callback
+timeout, and emits content-free duration, size, hash, result, and retryability
+telemetry. The same content-free evidence is persisted per Run Item, delivery
+attempt, and pipeline position so an operator can inspect completed, failed, or
+interrupted Processor steps from the Run report. The item page loads a bounded
+recent set; filtering to one source item provides focused history. Payload values and Processor
+configuration are not copied into these records. A Processor error fails or
+retries the existing Run Item according to its normalized error classification;
+it does not create a separate workflow.
 
 ## Ownership decision
 

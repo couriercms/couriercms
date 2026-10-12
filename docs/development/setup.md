@@ -15,7 +15,7 @@ docker compose up -d postgres
 ```
 
 On macOS/Linux use `sh ./scripts/dev.sh`. The script compiles the SDK, packages the
-WordPress, Sanity, and fake development extensions into `.local/extensions`,
+Content Processor, WordPress, Sanity, and fake development extensions into `.local/extensions`,
 sets `COURIERCMS_EXTENSIONS_PATH`, runs `mix setup` inside `platform/`, and
 starts Phoenix.
 

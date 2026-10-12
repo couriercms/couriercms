@@ -47,6 +47,7 @@
 - [Extension capability matrix](extensions/capability-matrix.md)
 - [WordPress source extension](extensions/wordpress.md)
 - [Sanity target extension](extensions/sanity.md)
+- [Content Processor extension](extensions/content-processors.md)
 - [Extension package format](extensions/package-format.md)
 - [WordPress connector](connectors/wordpress.md)
 

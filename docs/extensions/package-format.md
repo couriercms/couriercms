@@ -29,7 +29,7 @@ The manifest is declarative JSON. A representative shape is:
 ```json
 {
   "manifestVersion": 1,
-  "extensionId": "org.couriercms.wordpress",
+  "extensionId": "com.couriercms.wordpress",
   "name": "WordPress",
   "version": "1.0.0",
   "otpApplication": "couriercms_wordpress",
@@ -43,6 +43,12 @@ The manifest is declarative JSON. A representative shape is:
       "kind": "adapter",
       "module": "CourierCMSExtension.WordPress.Adapter",
       "capabilities": ["source", "incremental_changes", "publish_events"]
+    },
+    {
+      "id": "wordpress_html",
+      "kind": "processor",
+      "module": "CourierCMSExtension.WordPress.HtmlProcessor",
+      "capabilities": ["processor"]
     }
   ]
 }
@@ -143,8 +149,7 @@ Runs additionally capture:
 - SDK contract version; and
 - execution runtime.
 
-Runs currently store source and target Adapter evidence. When Processor
-execution is implemented, Runs will also store ordered Processor artifact
+Runs store source and target Adapter evidence plus ordered Processor artifact
 evidence using the same identity principles.
 
 These fields make execution and recovery explainable even after an

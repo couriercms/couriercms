@@ -31,7 +31,8 @@ because public posts are accessible.
 | Categories | Embedded relationship | Filter accepts a category slug |
 | Tags | Embedded relationship | Filter accepts one or more tag slugs; match semantics are any |
 | Author | Embedded relationship | Preserves WordPress user ID, display name, and public link |
-| Featured media | Descriptor | Preserves attachment ID, original URL, MIME type, dimensions, alt text, and caption |
+| Featured media | Required Delivery Asset | Preserves attachment ID, original URL, MIME type, dimensions, alt text, and caption |
+| Inline images | Required Delivery Assets | Discovers absolute HTTP(S) `img src` values in rendered HTML, deduplicates them, and preserves source URL and alt text |
 | Body | Rendered HTML | Gutenberg-aware conversion is deferred to a transformation layer |
 | Locale | Connection default | WordPress core has no locale per post; WPML/Polylang are deferred |
 | Revision | Published `modified_gmt` | Historical WordPress revisions and autosaves are out of scope |
@@ -107,12 +108,15 @@ featured_image? {
 }
 ```
 
-The source Adapter exposes featured media through the first-class Delivery
-Asset contract. CourierCMS streams the media with the same optional WordPress
+The source Adapter exposes featured media and inline rendered-HTML images
+through the first-class Delivery Asset contract. CourierCMS streams the media with the same optional WordPress
 Application Password used for source reads, enforces the platform byte and time
 limits, and gives the target Adapter an independently retryable asset. The
-target reference is injected into the final Delivery Item, so the legacy
-WordPress URL is not its only asset dependency.
+target reference is injected into the final Delivery Item and its canonical
+asset manifest, so a legacy WordPress URL is not the only asset identity. The
+rendered HTML is deliberately preserved. Target-owned hooks can rewrite each
+manifest `sourceUrl` to its `targetReference` without CourierCMS assuming a
+target-native rich-text model.
 
 ## Identity and replay
 
@@ -131,7 +135,7 @@ CourierCMS content hash and target ownership checks.
 - WPML, Polylang, multisite, custom post types, custom taxonomies, ACF, comments,
   menus, drafts, scheduled content, historical revisions, and page builders
 - Shortcodes or plugin output that does not survive rendered REST HTML
-- Inline images and reusable Gutenberg blocks
+- `srcset`, lazy-load-only attributes, CSS background images, and reusable Gutenberg blocks
 - Media protected by CDN cookies, hotlink controls, or private storage
 - SEO plugin fields not registered in the REST API
 

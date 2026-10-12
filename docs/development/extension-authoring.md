@@ -35,8 +35,8 @@ Each manifest component exposes a bounded SDK behaviour:
 
 - an Adapter declares its configuration definition and source and/or target
   capabilities;
-- the planned Processor contract declares its input/output contract,
-  configuration, limits, and deterministic execution metadata.
+- a Processor declares one bounded, target-independent operation and validates
+  its data-only configuration.
 
 Definitions are declarative data rendered by generic CourierCMS screens. An
 Extension cannot inject HTML, LiveViews, routes, JavaScript, arbitrary Oban
@@ -47,11 +47,18 @@ Ecto repositories or schemas, invoke another Adapter, advance checkpoints, or
 decide Run state. Processor callbacks receive only their bounded input and
 declared configuration.
 
-Processor authoring is not yet supported for installable packages. Although
-the SDK reserves a Processor behaviour and component kind, the current package
-loader rejects Processor components and the platform has no Processor
-execution pipeline. Do not publish a package claiming Processor support until
-that runtime capability and its conformance tests are released.
+Processor authoring is supported for trusted installable packages. Implement
+`CourierCMS.ExtensionSDK.Processor`, declare `kind: "processor"` and the single
+`processor` capability in the manifest, and provide `component/0`,
+`definition/0`, `validate_config/1`, and `process/2`. `process/2` receives only
+the value selected by the Route input path and the validated JSON configuration;
+it returns the value written to the configured output path or a normalized,
+secret-safe `AdapterError`.
+
+Processor callbacks execute in a monitored process with a platform timeout,
+but Extensions are trusted BEAM code rather than a security sandbox. Keep work
+bounded and scheduler-friendly. Native libraries, untrusted code, AI calls, and
+unbounded or blocking workloads require a separate architecture decision.
 
 ## Target Destination contract
 
@@ -100,6 +107,7 @@ All Extensions require:
 - manifest and compatibility validation;
 - definition/schema validation;
 - capability conformance tests;
+- deterministic Processor configuration/input/output tests when applicable;
 - secret-safe error and log tests;
 - timeout, retry, rate-limit, and cancellation behavior where applicable;
 - source pagination and stable identity tests for source Adapters;
@@ -108,6 +116,25 @@ All Extensions require:
 - startup, shutdown, and restart tests inside a representative CourierCMS release.
 
 Live integration tests remain opt-in and use disposable CMS projects or sites.
+
+## Processor configuration metadata
+
+A Processor `definition/0` may expose `config_fields` so CourierCMS can render a
+guided Route editor without knowing anything about the concrete Extension. The
+supported presentation types are `:text`, `:integer`, `:checkbox`, and
+`:json_object`. Every field declares a stable key and human-readable label and
+may include a default, required marker, and description.
+
+The metadata is a user-interface contract, not a substitute for
+`validate_config/1`. The Extension must still enforce all semantic limits and
+reject unknown or unsafe values. Processor configuration is stored in immutable
+Route Revisions, so it must not contain credentials, tokens, or secrets.
+
+The Route editor can add or edit a typed Processor step, reorder or remove draft
+steps, and preview the complete draft against one source item. Preview executes
+the same bounded Processor gateway and produces a canonical document without
+writing to the Destination. Saving is a separate explicit action that creates a
+Route Revision.
 
 ## Upgrade compatibility
 

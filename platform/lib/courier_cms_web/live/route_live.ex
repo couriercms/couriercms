@@ -6,7 +6,8 @@ defmodule CourierCMSWeb.RouteLive do
   alias CourierCMS.Accounts.Scope
   alias CourierCMS.Adapters.Definition
   alias CourierCMS.ExtensionSDK.AdapterError
-  alias CourierCMS.{Destinations, Execution, Mapping, Routes}
+  alias CourierCMS.{Destinations, Execution, Mapping, Processors, Routes, Transformations}
+  alias CourierCMS.Processors.Definition, as: ProcessorDefinition
   alias CourierCMS.Transport.Projection
 
   @impl true
@@ -132,6 +133,239 @@ defmodule CourierCMSWeb.RouteLive do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Draft mapping preview could not be generated.")}
+    end
+  end
+
+  def handle_event("validate-transformations", %{"transformations" => params}, socket),
+    do: {:noreply, assign(socket, :transformations_form, to_form(params, as: :transformations))}
+
+  def handle_event("save-transformations", %{"transformations" => params}, socket) do
+    with {:ok, transformations} <- Transformations.parse(params["definitions"]),
+         {:ok, _route} <-
+           Routes.update_transformations(
+             socket.assigns.current_scope,
+             socket.assigns.route,
+             transformations
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Transformations saved as a new Route Revision and Delivery Contract version."
+       )
+       |> load(socket.assigns.route.id)}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, first_error(changeset))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Transformations could not be saved.")}
+    end
+  end
+
+  def handle_event("preview-draft-transformations", _params, socket) do
+    params = socket.assigns.transformations_form.params
+
+    with {:ok, transformations} <- Transformations.parse(params["definitions"]),
+         {:ok, preview} <-
+           Execution.preview_route(socket.assigns.current_scope, socket.assigns.route.id,
+             transformations: transformations
+           ) do
+      {:noreply, assign(socket, :delivery_preview, preview)}
+    else
+      {:error, %AdapterError{} = error} ->
+        {:noreply, put_flash(socket, :error, error.message)}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply,
+         put_flash(socket, :error, "Draft transformation preview could not be generated.")}
+    end
+  end
+
+  def handle_event("validate-processors", %{"processors" => params}, socket) do
+    socket = assign(socket, :processors_form, to_form(params, as: :processors))
+
+    case Processors.parse(params["definitions"]) do
+      {:ok, processors} -> {:noreply, assign(socket, :draft_processors, processors)}
+      _error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("validate-processor-builder", params, socket) do
+    builder_params = Map.get(params, "processor_builder", %{})
+    config_params = Map.get(params, "processor_config", %{})
+    reference = builder_params["reference"]
+
+    definition = processor_definition(socket.assigns.processor_definitions, reference)
+
+    config_params =
+      if definition && reference != socket.assigns.selected_processor_reference,
+        do: ProcessorDefinition.defaults(definition),
+        else: config_params
+
+    {:noreply,
+     assign(socket,
+       processor_builder_form: to_form(builder_params, as: :processor_builder),
+       processor_config_form: to_form(config_params, as: :processor_config),
+       selected_processor_definition: definition,
+       selected_processor_reference: reference
+     )}
+  end
+
+  def handle_event("add-draft-processor", params, socket) do
+    builder_params = Map.get(params, "processor_builder", %{})
+    config_params = Map.get(params, "processor_config", %{})
+
+    with %{} = definition <-
+           processor_definition(
+             socket.assigns.processor_definitions,
+             builder_params["reference"]
+           ),
+         {:ok, config} <- ProcessorDefinition.cast_config(definition, config_params),
+         {:ok, current} <- Processors.parse(socket.assigns.processors_form.params["definitions"]),
+         {:ok, [processor]} <-
+           Processors.prepare([
+             %{
+               "extension_id" => definition.extension_id,
+               "component_id" => definition.component_id,
+               "input_path" => builder_params["input_path"],
+               "output_path" => builder_params["output_path"],
+               "config" => config
+             }
+           ]) do
+      processors = put_draft_processor(current, processor, builder_params["edit_index"])
+
+      {:noreply,
+       socket
+       |> assign(
+         processors_form: processors_form(processors),
+         draft_processors: processors,
+         processor_builder_form:
+           processor_builder_form(
+             builder_params["reference"],
+             builder_params["input_path"],
+             builder_params["output_path"]
+           )
+       )
+       |> put_flash(
+         :info,
+         "Processor draft updated. Preview it, then save to create a Route Revision."
+       )}
+    else
+      nil ->
+        {:noreply, put_flash(socket, :error, "Choose an installed Processor.")}
+
+      {:error, %AdapterError{} = error} ->
+        {:noreply, put_flash(socket, :error, error.message)}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Processor could not be added to the draft.")}
+    end
+  end
+
+  def handle_event("edit-draft-processor", %{"index" => index}, socket) do
+    with {index, ""} <- Integer.parse(index),
+         %{} = processor <- Enum.at(socket.assigns.draft_processors, index),
+         reference <- "#{processor["extension_id"]}/#{processor["component_id"]}",
+         %{} = definition <-
+           processor_definition(socket.assigns.processor_definitions, reference) do
+      builder =
+        to_form(
+          %{
+            "reference" => reference,
+            "input_path" => processor["input_path"],
+            "output_path" => processor["output_path"],
+            "edit_index" => to_string(index)
+          },
+          as: :processor_builder
+        )
+
+      {:noreply,
+       assign(socket,
+         processor_builder_form: builder,
+         processor_config_form:
+           to_form(ProcessorDefinition.form_values(definition, processor["config"]),
+             as: :processor_config
+           ),
+         selected_processor_definition: definition,
+         selected_processor_reference: reference
+       )}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Draft Processor could not be edited.")}
+    end
+  end
+
+  def handle_event("remove-draft-processor", %{"index" => index}, socket) do
+    update_draft_processors(socket, index, fn processors, parsed_index ->
+      List.delete_at(processors, parsed_index)
+    end)
+  end
+
+  def handle_event(
+        "move-draft-processor",
+        %{"index" => index, "direction" => direction},
+        socket
+      ) do
+    update_draft_processors(socket, index, fn processors, parsed_index ->
+      target = if direction == "up", do: parsed_index - 1, else: parsed_index + 1
+      swap_processors(processors, parsed_index, target)
+    end)
+  end
+
+  def handle_event("save-processors", %{"processors" => params}, socket) do
+    with {:ok, processors} <- Processors.parse(params["definitions"]),
+         {:ok, _route} <-
+           Routes.update_processors(
+             socket.assigns.current_scope,
+             socket.assigns.route,
+             processors
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Processors saved as a new Route Revision and Delivery Contract version."
+       )
+       |> load(socket.assigns.route.id)}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, first_error(changeset))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Processors could not be saved.")}
+    end
+  end
+
+  def handle_event("preview-draft-processors", _params, socket) do
+    params = socket.assigns.processors_form.params
+
+    with {:ok, processors} <- Processors.parse(params["definitions"]),
+         {:ok, preview} <-
+           Execution.preview_route(socket.assigns.current_scope, socket.assigns.route.id,
+             processors: processors
+           ) do
+      {:noreply, assign(socket, :delivery_preview, preview)}
+    else
+      {:error, %AdapterError{} = error} ->
+        {:noreply, put_flash(socket, :error, error.message)}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Draft Processor preview could not be generated.")}
     end
   end
 
@@ -330,6 +564,9 @@ defmodule CourierCMSWeb.RouteLive do
   defp load(socket, id) do
     scope = socket.assigns.current_scope
     route = Routes.get_route!(scope, id)
+    processor_definitions = Processors.definitions()
+    selected_processor_definition = List.first(processor_definitions)
+    selected_processor_reference = processor_reference(selected_processor_definition)
 
     assign(socket,
       page_title: route.name,
@@ -341,6 +578,15 @@ defmodule CourierCMSWeb.RouteLive do
       route_form: route_form(route),
       selection_form: selection_form(route.current_revision.selection),
       mapping_form: mapping_form(route.current_revision.mapping),
+      transformations_form: transformations_form(route.current_revision.transformations),
+      processors_form: processors_form(route.current_revision.processors),
+      draft_processors: route.current_revision.processors,
+      processor_definitions: processor_definitions,
+      processor_builder_form:
+        processor_builder_form(selected_processor_reference, "payload.body", "payload.body"),
+      processor_config_form: processor_config_form(selected_processor_definition),
+      selected_processor_definition: selected_processor_definition,
+      selected_processor_reference: selected_processor_reference,
       schedule_form: schedule_form(route.current_revision.trigger_settings),
       projections_form: projections_form(route.current_revision.projections),
       delivery_name_form:
@@ -372,6 +618,90 @@ defmodule CourierCMSWeb.RouteLive do
 
   defp mapping_form(mapping),
     do: to_form(%{"definitions" => Mapping.format(mapping)}, as: :mapping)
+
+  defp transformations_form(transformations),
+    do:
+      to_form(%{"definitions" => Transformations.format(transformations)},
+        as: :transformations
+      )
+
+  defp processors_form(processors),
+    do: to_form(%{"definitions" => Processors.format(processors)}, as: :processors)
+
+  defp processor_builder_form(reference, input_path, output_path) do
+    to_form(
+      %{
+        "reference" => reference,
+        "input_path" => input_path,
+        "output_path" => output_path,
+        "edit_index" => ""
+      },
+      as: :processor_builder
+    )
+  end
+
+  defp processor_config_form(nil), do: to_form(%{}, as: :processor_config)
+
+  defp processor_config_form(definition),
+    do: to_form(ProcessorDefinition.defaults(definition), as: :processor_config)
+
+  defp processor_reference(nil), do: nil
+
+  defp processor_reference(definition),
+    do: "#{definition.extension_id}/#{definition.component_id}"
+
+  defp processor_definition(definitions, reference) do
+    Enum.find(definitions, &(processor_reference(&1) == reference))
+  end
+
+  defp processor_options(definitions) do
+    Enum.map(definitions, fn definition ->
+      {"#{definition.label} — #{definition.extension_id}/#{definition.component_id}",
+       processor_reference(definition)}
+    end)
+  end
+
+  defp processor_input_type(%{type: :checkbox}), do: "checkbox"
+  defp processor_input_type(%{type: :integer}), do: "number"
+  defp processor_input_type(%{type: :json_object}), do: "textarea"
+  defp processor_input_type(_field), do: "text"
+
+  defp put_draft_processor(processors, processor, index) do
+    case Integer.parse(to_string(index || "")) do
+      {index, ""} when index >= 0 and index < length(processors) ->
+        List.replace_at(processors, index, processor)
+
+      _other ->
+        processors ++ [processor]
+    end
+  end
+
+  defp update_draft_processors(socket, index, update) do
+    with {index, ""} <- Integer.parse(index),
+         true <- index >= 0 and index < length(socket.assigns.draft_processors) do
+      processors = update.(socket.assigns.draft_processors, index)
+
+      {:noreply,
+       assign(socket,
+         draft_processors: processors,
+         processors_form: processors_form(processors)
+       )}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Draft Processor could not be changed.")}
+    end
+  end
+
+  defp swap_processors(processors, from, to)
+       when to >= 0 and to < length(processors) do
+    left = Enum.at(processors, from)
+    right = Enum.at(processors, to)
+
+    processors
+    |> List.replace_at(from, right)
+    |> List.replace_at(to, left)
+  end
+
+  defp swap_processors(processors, _from, _to), do: processors
 
   defp route_form(route),
     do: to_form(%{"name" => route.name, "enabled" => to_string(route.enabled)}, as: :route)
@@ -532,6 +862,250 @@ defmodule CourierCMSWeb.RouteLive do
                       phx-click="preview-draft-mapping"
                       class="btn btn-outline"
                     >Preview draft</button>
+                    <.button type="submit" class="btn btn-primary">Validate and save</.button>
+                  </div>
+                </.form>
+              </div>
+            </details>
+            <div class="divider"></div>
+            <h3 class="font-bold">Portable transformations</h3>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <div
+                :for={transformation <- @route.current_revision.transformations}
+                class="rounded-xl bg-base-200 px-3 py-2 text-xs"
+              >
+                <code class="font-semibold text-primary">{transformation["input_path"]}</code>
+                <span class="mx-2 text-base-content/35">|</span>
+                <code>{transformation["operation"]}</code>
+                <p class="mt-1 text-base-content/45">
+                  writes <code>{transformation["output_path"]}</code> · v{transformation["version"]}
+                </p>
+              </div>
+              <p
+                :if={@route.current_revision.transformations == []}
+                class="text-sm text-base-content/55"
+              >
+                No transformations configured. The mapped payload is delivered unchanged.
+              </p>
+            </div>
+            <details
+              :if={@can_edit?}
+              class="collapse-arrow collapse mt-4 border border-base-300 bg-base-100"
+            >
+              <summary class="collapse-title font-semibold">Edit portable transformations</summary>
+              <div class="collapse-content">
+                <.form
+                  for={@transformations_form}
+                  id="transformations-form"
+                  phx-change="validate-transformations"
+                  phx-submit="save-transformations"
+                >
+                  <.input
+                    field={@transformations_form[:definitions]}
+                    type="textarea"
+                    rows="6"
+                    label="One ordered transformation per line"
+                    placeholder="title=title|string.trim\nslug=title|string.slug"
+                    class="textarea textarea-bordered w-full font-mono text-xs"
+                  />
+                  <p class="mt-2 text-xs text-base-content/55">
+                    Format: output_path=input_path|operation. Available: {Enum.join(
+                      Transformations.operations(),
+                      ", "
+                    )}. Saving creates a new immutable contract version.
+                  </p>
+                  <div class="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      phx-click="preview-draft-transformations"
+                      class="btn btn-outline"
+                    >Preview draft</button>
+                    <.button type="submit" class="btn btn-primary">Validate and save</.button>
+                  </div>
+                </.form>
+              </div>
+            </details>
+            <div class="divider"></div>
+            <h3 class="font-bold">Extension Processors</h3>
+            <p class="text-sm text-base-content/55">
+              Ordered, target-independent processing supplied by trusted installed Extensions.
+            </p>
+            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+              <div
+                :for={processor <- @route.current_revision.processors}
+                class="rounded-xl bg-base-200 px-3 py-2 text-xs"
+              >
+                <code class="font-semibold text-primary">{processor["input_path"]}</code>
+                <span class="mx-2 text-base-content/35">to</span>
+                <code>{processor["output_path"]}</code>
+                <p class="mt-1 break-all text-base-content/45">
+                  {processor["extension_id"]}/{processor["component_id"]} v{processor[
+                    "component_version"
+                  ]}
+                </p>
+              </div>
+              <p
+                :if={@route.current_revision.processors == []}
+                class="text-sm text-base-content/55"
+              >
+                No Extension Processors configured.
+              </p>
+            </div>
+            <details
+              :if={@can_edit?}
+              class="collapse-arrow collapse mt-4 border border-base-300 bg-base-100"
+            >
+              <summary class="collapse-title font-semibold">Edit Extension Processors</summary>
+              <div class="collapse-content">
+                <.form
+                  :if={@selected_processor_definition}
+                  for={@processor_builder_form}
+                  id="processor-builder-form"
+                  phx-change="validate-processor-builder"
+                  phx-submit="add-draft-processor"
+                  class="mb-5 rounded-xl border border-base-300 bg-base-200/40 p-4"
+                >
+                  <.input field={@processor_builder_form[:edit_index]} type="hidden" />
+                  <h4 class="font-semibold">Add a Processor to the draft</h4>
+                  <p class="mt-1 text-xs text-base-content/55">
+                    Configuration fields are declared and validated by the installed Extension.
+                  </p>
+                  <div class="mt-3 grid gap-3 lg:grid-cols-3">
+                    <.input
+                      field={@processor_builder_form[:reference]}
+                      type="select"
+                      label="Processor"
+                      options={processor_options(@processor_definitions)}
+                    />
+                    <.input
+                      field={@processor_builder_form[:input_path]}
+                      label="Input payload path"
+                      placeholder="body.value"
+                    />
+                    <.input
+                      field={@processor_builder_form[:output_path]}
+                      label="Output payload path"
+                      placeholder="body.value"
+                    />
+                  </div>
+                  <div class="mt-3 rounded-lg border border-base-300 bg-base-100 p-3">
+                    <p class="text-sm font-semibold">{@selected_processor_definition.label}</p>
+                    <p class="mt-1 text-xs text-base-content/55">
+                      {@selected_processor_definition.description}
+                    </p>
+                    <div
+                      :if={ProcessorDefinition.fields(@selected_processor_definition) != []}
+                      class="mt-3 grid gap-3 md:grid-cols-2"
+                    >
+                      <div
+                        :for={field <- ProcessorDefinition.fields(@selected_processor_definition)}
+                        class={field.type == :json_object && "md:col-span-2"}
+                      >
+                        <.input
+                          field={@processor_config_form[field.key]}
+                          type={processor_input_type(field)}
+                          label={field.label}
+                          rows={field.type == :json_object && "5"}
+                          class={field.type == :json_object && "font-mono text-xs"}
+                        />
+                        <p :if={field[:description]} class="mt-1 text-xs text-base-content/50">
+                          {field.description}
+                        </p>
+                      </div>
+                    </div>
+                    <p
+                      :if={ProcessorDefinition.fields(@selected_processor_definition) == []}
+                      class="mt-3 text-xs text-base-content/50"
+                    >
+                      This Processor has no configuration fields.
+                    </p>
+                  </div>
+                  <div class="mt-3 flex justify-end">
+                    <.button type="submit" class="btn btn-secondary">Add to draft</.button>
+                  </div>
+                </.form>
+                <div id="processor-draft-steps" class="mb-5 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h4 class="font-semibold">Ordered draft</h4>
+                    <span class="badge badge-outline">{length(@draft_processors)} steps</span>
+                  </div>
+                  <p :if={@draft_processors == []} class="text-sm text-base-content/55">
+                    No Processors in this draft.
+                  </p>
+                  <div
+                    :for={{processor, index} <- Enum.with_index(@draft_processors)}
+                    id={"draft-processor-#{index}"}
+                    class="flex flex-col gap-2 rounded-xl border border-base-300 bg-base-100 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div class="min-w-0 text-xs">
+                      <p class="font-semibold">
+                        {index + 1}. {processor["extension_id"]}/{processor["component_id"]}
+                      </p>
+                      <p class="mt-1 break-all text-base-content/50">
+                        {processor["input_path"]} → {processor["output_path"]}
+                      </p>
+                    </div>
+                    <div class="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="move-draft-processor"
+                        phx-value-index={index}
+                        phx-value-direction="up"
+                        disabled={index == 0}
+                      >Up</button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="move-draft-processor"
+                        phx-value-index={index}
+                        phx-value-direction="down"
+                        disabled={index == length(@draft_processors) - 1}
+                      >Down</button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="edit-draft-processor"
+                        phx-value-index={index}
+                      >Edit</button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove-draft-processor"
+                        phx-value-index={index}
+                      >Remove</button>
+                    </div>
+                  </div>
+                </div>
+                <.form
+                  for={@processors_form}
+                  id="processors-form"
+                  phx-change="validate-processors"
+                  phx-submit="save-processors"
+                >
+                  <.input
+                    field={@processors_form[:definitions]}
+                    type="textarea"
+                    rows="6"
+                    label="Ordered draft definition"
+                    placeholder={"title=title|com.example.content/title_cleanup|{\"mode\":\"portable\"}"}
+                    class="textarea textarea-bordered w-full font-mono text-xs"
+                  />
+                  <p class="mt-2 text-xs font-semibold">Advanced representation</p>
+                  <p class="mt-2 text-xs text-base-content/55">
+                    The guided editor appends validated entries here. Advanced users may edit the format directly: output=input|extension/component|JSON.
+                  </p>
+                  <div :if={@processor_definitions != []} class="mt-2 text-xs text-base-content/55">
+                    Installed: {Enum.map_join(@processor_definitions, ", ", fn definition ->
+                      "#{definition.extension_id}/#{definition.component_id}"
+                    end)}
+                  </div>
+                  <div class="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      phx-click="preview-draft-processors"
+                      class="btn btn-outline"
+                    >Preview draft (no target write)</button>
                     <.button type="submit" class="btn btn-primary">Validate and save</.button>
                   </div>
                 </.form>

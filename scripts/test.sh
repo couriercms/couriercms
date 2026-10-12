@@ -13,7 +13,7 @@ esac
 
 sh "$repository_root/scripts/prepare-extensions.sh" --include-fake
 
-for project in sdk fake wordpress sanity; do
+for project in sdk fake content wordpress sanity; do
   (
     cd "$repository_root/extensions/$project"
     MIX_ENV=test mix deps.get

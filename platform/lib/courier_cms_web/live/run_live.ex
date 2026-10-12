@@ -522,7 +522,7 @@ defmodule CourierCMSWeb.RunLive do
               <tr>
                 <th>Source</th><th>Locale / revision</th><th>Operation</th><th>Attempts</th><th>
                   Status
-                </th><th>Error</th><th></th>
+                </th><th>Processors</th><th>Error</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -541,6 +541,48 @@ defmodule CourierCMSWeb.RunLive do
                     item.status == :retrying && "badge-info",
                     item.status == :skipped && "badge-ghost"
                   ]}>{item.status}</span>
+                </td>
+                <td class="min-w-64">
+                  <span :if={item.processor_executions == []} class="text-xs text-base-content/45">
+                    None
+                  </span>
+                  <details :if={item.processor_executions != []}>
+                    <summary class="cursor-pointer text-xs font-semibold">
+                      {length(item.processor_executions)} recent execution{if length(
+                                                                                item.processor_executions
+                                                                              ) ==
+                                                                                1,
+                                                                              do: "",
+                                                                              else: "s"}
+                    </summary>
+                    <ol class="mt-2 space-y-2">
+                      <li
+                        :for={execution <- item.processor_executions}
+                        id={"processor-execution-#{execution.id}"}
+                        class="rounded-lg border border-base-300 p-2 text-xs"
+                      >
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="font-mono font-semibold">
+                            {execution.position}. {execution.extension_id}/{execution.component_id}
+                          </span>
+                          <span class={[
+                            "badge badge-xs capitalize",
+                            execution.status == :succeeded && "badge-success",
+                            execution.status == :failed && "badge-error",
+                            execution.status == :processing && "badge-info"
+                          ]}>{execution.status}</span>
+                        </div>
+                        <p class="mt-1 text-base-content/55">
+                          attempt {execution.attempt} | v{execution.component_version} | {processor_duration(
+                            execution.duration_us
+                          )}
+                        </p>
+                        <p :if={execution.error_summary} class="mt-1 text-error">
+                          {execution.error_summary}
+                        </p>
+                      </li>
+                    </ol>
+                  </details>
                 </td>
                 <td class="max-w-xs text-xs text-error">{item.error_summary}</td>
                 <td>
@@ -579,6 +621,12 @@ defmodule CourierCMSWeb.RunLive do
     </Layouts.app>
     """
   end
+
+  defp processor_duration(nil), do: "in progress"
+  defp processor_duration(duration_us) when duration_us < 1_000, do: "#{duration_us} us"
+
+  defp processor_duration(duration_us),
+    do: "#{Float.round(duration_us / 1_000, 1)} ms"
 
   attr :label, :string, required: true
   attr :value, :integer, required: true

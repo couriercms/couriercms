@@ -124,9 +124,13 @@ Every error declares retryability and may carry a sanitized adapter code. Raw re
 - Rate limits honor `Retry-After` or equivalent CMS guidance.
 - Network timeouts and temporary unavailability retry with capped exponential backoff and jitter.
 - Authentication, invalid mapping, unsupported capability, and ownership violations do not retry automatically.
-- When Transformation and Processor execution is implemented, deterministic
-  content errors will be terminal and explicitly classified transient failures
-  may retry.
+- Deterministic built-in Transformation errors are terminal and use the
+  `transformation_failed` category without exposing the rejected value.
+- Processor failures retry only when the Processor explicitly
+  classifies the failure as transient.
+- Every started Processor step records content-free evidence against the Run
+  Item and delivery attempt. A worker restart leaves visible interrupted
+  evidence, which the next attempt closes before continuing.
 - Terminal Run Items can be manually replayed after configuration is corrected.
 
 Retry counts belong to CourierCMS execution history even when Oban performs scheduling.

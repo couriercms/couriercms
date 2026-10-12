@@ -8,7 +8,7 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 & (Join-Path $PSScriptRoot 'prepare-extensions.ps1') -IncludeFake
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-foreach ($project in @('sdk', 'fake', 'wordpress', 'sanity')) {
+foreach ($project in @('sdk', 'fake', 'content', 'wordpress', 'sanity')) {
   Push-Location (Join-Path $repositoryRoot "extensions\$project")
   try {
     $env:MIX_ENV = 'test'

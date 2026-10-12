@@ -101,7 +101,9 @@ Route link remains as history.
 - delivery contract and version
 - target Projection Field definitions
 - Delivery Item naming field and other immutable delivery presentation settings
-- transformation configuration reserved for the future execution pipeline
+- ordered, versioned built-in Transformation configuration
+- ordered Extension Processor identifiers, versions, input/output paths, and
+  data-only configuration
 - trigger execution settings
 - checksum
 - created timestamp and actor
@@ -120,7 +122,7 @@ A revision becomes immutable when referenced by a Run.
 - started/completed timestamps
 - discovered, succeeded, failed, retrying, and skipped counts
 - cancellation metadata
-- source and target Extension/component IDs, versions, package checksums, and
+- source, target, and Processor Extension/component IDs, versions, package checksums, and
   SDK contract versions and runtimes actually used
 
 Trigger metadata must be sanitized and must not contain credentials or complete payloads.
@@ -147,6 +149,26 @@ than claiming unobserved evidence.
 - content hash
 
 Large payloads are not stored in Oban arguments. Payload retention, if introduced, requires a separate security and storage decision.
+
+### processor_executions
+
+One content-free record for each Processor step that starts for a Run Item
+delivery attempt:
+
+- `run_item_id`
+- monotonic delivery attempt number and ordered pipeline position
+- Extension/component identifier and exact component version
+- declared input/output paths and configuration hash
+- input/output hashes and encoded byte counts
+- processing, succeeded, or failed status
+- callback duration and timestamps
+- normalized error category, bounded safe summary, and retryability
+
+The unique identity is `(run_item_id, attempt, position)`. A later delivery
+attempt closes older processing records as interrupted before starting new
+Processor work. Records never contain payload values, credentials, or complete
+Processor configuration. They are deleted with the owning Run Item under the
+normal Run retention policy.
 
 ### route_items
 

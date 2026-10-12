@@ -8,7 +8,7 @@
 - Encryption keys
 - CMS endpoint and topology information
 - Delivery history and error diagnostics
-- Future Processor inputs and temporary Delivery Asset files
+- Processor inputs and temporary Delivery Asset files
 
 ## Trust boundaries
 
@@ -153,18 +153,25 @@ artifact.
 
 An update requires both a CourierCMS Route Item binding and matching target ownership metadata. Failure is terminal and visible. No force-overwrite option exists in normal execution.
 
-## Extensions, planned Processors, and temporary files
+## Extensions, Processors, and temporary files
 
-The Processor-specific controls below become mandatory when Processor
-execution is implemented. Existing Adapter work already follows the applicable
-temporary-file and secret-minimization rules.
+The current Processor contract receives one JSON-compatible value and data-only
+configuration, enforces the delivery-size boundary and a wall-clock timeout,
+and validates JSON-compatible output. It does not grant a temporary directory
+or file handle. A future file-processing contract must add explicit lifecycle
+controls before advertising that capability.
 
-- Use per-execution temporary directories.
-- Enforce file count, size, duration, and output limits.
+Durable Processor execution evidence contains component identity, paths,
+hashes, sizes, duration, status, and bounded error metadata. It must never
+contain input/output values, credentials, or complete Processor configuration.
+These records inherit the owning Run Item's retention and deletion behavior.
+
+- Use per-execution temporary directories if a future contract permits files.
+- Enforce file count, size, duration, and output limits for that future contract.
 - Pass only required inputs and configuration.
 - Do not inherit unnecessary environment secrets.
 - Treat output as untrusted and validate it.
-- Remove temporary data after processing; operational cleanup handles crash remnants.
+- Remove temporary data after processing; operational cleanup must handle crash remnants.
 - Load only precompiled OTP Extension packages that pass manifest, archive,
   compatibility, checksum/signature-policy, module-collision, and callback
   validation. Never compile Extension source in production.

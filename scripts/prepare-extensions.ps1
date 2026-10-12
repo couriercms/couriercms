@@ -27,7 +27,7 @@ New-Item -ItemType Directory -Force -Path $installPath | Out-Null
 Get-ChildItem -LiteralPath $installPath -Filter '*.couriercms' -File -ErrorAction SilentlyContinue |
   ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 
-$projects = @('wordpress', 'sanity')
+$projects = @('content', 'wordpress', 'sanity')
 if ($IncludeFake) { $projects += 'fake' }
 
 Push-Location (Join-Path $repositoryRoot 'extensions\sdk')
